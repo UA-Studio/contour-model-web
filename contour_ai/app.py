@@ -470,7 +470,7 @@ def _server_check(params, q):
     used = RUNS.get((ip, today), 0)
     if used >= LIMITS["runs_per_day"]:
         raise ValueError(f"한 사람이 하루에 {LIMITS['runs_per_day']}번까지 만들 수 있습니다. 내일 다시 써 주세요. "
-                         "더 쓰고 싶으면 윈도우판을 내려받아 쓰실 수 있어요.")
+                         "더 필요하면 오른쪽 아래 '의견 보내기'로 알려 주세요.")
     RUNS[(ip, today)] = used + 1
 
 
@@ -739,7 +739,7 @@ class Handler(BaseHTTPRequestHandler):
         if SERVER:
             if u.path in ("/inspect", "/open", "/testapi"):      # PC 경로·폴더 열기·키 시험은 내 PC 판에서만
                 self.rfile.read(n)
-                return self._send(403, {"error": "이 기능은 윈도우판에서만 쓸 수 있습니다."})
+                return self._send(403, {"error": "이 사이트에서는 쓸 수 없는 기능입니다."})
             if n > LIMITS["max_upload_mb"] * 1024 * 1024:
                 self.close_connection = True
                 return self._send(413, {"error": f"파일이 너무 큽니다. {LIMITS['max_upload_mb']}MB 까지 올릴 수 있습니다."})
