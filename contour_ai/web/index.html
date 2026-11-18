@@ -1,0 +1,1418 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>콘타 모델 만들기</title>
+<style>
+@font-face{font-family:"Pretendard Variable";font-weight:45 920;font-style:normal;font-display:swap;src:url("./vendor/fonts/PretendardVariable.woff2") format("woff2-variations"),url("./vendor/fonts/PretendardVariable.woff2") format("woff2")}
+:root{--bg:#ffffff;--panel:#ffffff;--ink:#111111;--sub:#646464;--line:#dadada;--acc:#000000;--ok:#1d4ed8;--err:#1a1a1a}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;font:14px/1.5 "Pretendard Variable",Pretendard,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;letter-spacing:-.01em;background:var(--bg);color:var(--ink)}
+.app{display:grid;grid-template-columns:360px 1fr;height:100vh}
+aside{background:var(--panel);border-right:1px solid var(--line);overflow:auto;padding:20px 20px 28px}
+h1{font-size:18px;margin:0 0 2px}
+.lead{color:var(--sub);margin:0 0 18px;font-size:13px}
+section{border-top:1px solid var(--line);padding:14px 0}
+h2{font-size:13px;margin:0 0 10px;letter-spacing:.02em}
+h2 b{display:inline-block;width:20px;height:20px;border-radius:50%;background:var(--acc);color:#fff;text-align:center;line-height:20px;font-size:12px;margin-right:6px}
+label{display:block;font-size:12px;color:var(--sub);margin:8px 0 3px}
+input[type=text],input[type=number],select{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:#fff;font:inherit}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.drop{border:1.5px dashed #b5b5b5;border-radius:8px;padding:18px 12px;text-align:center;color:var(--sub);cursor:pointer;background:#fff}
+.drop.on{border-color:var(--acc);color:var(--ink)}
+.chk{display:flex;gap:8px;align-items:flex-start;margin:8px 0;font-size:13px;color:var(--ink)}
+.chk input{margin-top:3px}
+.chk small{display:block;color:var(--sub)}
+button{font:inherit;border:0;border-radius:7px;padding:10px 14px;cursor:pointer}
+.go{width:100%;background:var(--acc);color:#fff;font-weight:600;font-size:15px;padding:12px}
+.go:disabled{opacity:.4;cursor:default}
+.ghost{background:#fff;border:1px solid var(--line)}
+.info{font-size:12px;color:var(--sub);margin-top:6px}
+details summary{cursor:pointer;font-size:13px;font-weight:600}
+main{position:relative;display:flex;flex-direction:column;min-width:0}
+.tabs{display:flex;gap:4px;padding:10px 14px 0;border-bottom:1px solid var(--line);background:var(--bg)}
+.tabs button{background:none;border-radius:7px 7px 0 0;padding:8px 14px;color:var(--sub)}
+.tabs button.on{background:var(--panel);color:var(--ink);font-weight:600;border:1px solid var(--line);border-bottom-color:var(--panel);margin-bottom:-1px}
+.view{flex:1;position:relative;overflow:hidden}
+.pane{position:absolute;inset:0;display:none}
+.pane.on{display:block}
+.lawt{border-collapse:collapse;width:100%;margin:6px 0 18px;font-size:13px;background:#fff}
+.lawt th,.lawt td{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}
+.lawt th{background:#f3f3f3;font-weight:600}
+#mapwrap{position:absolute;inset:16px;display:flex;align-items:center;justify-content:center}
+#mapbox{position:relative;max-width:100%;max-height:100%}
+#map{display:block;max-width:100%;max-height:calc(100vh - 90px);cursor:crosshair;box-shadow:0 1px 8px #0002}
+#drawtip{position:absolute;left:8px;top:8px;background:#111;color:#fff;font-size:12px;padding:5px 9px;pointer-events:none}
+#mapbox.draw #map{cursor:crosshair}
+#sq{position:absolute;border:2px solid #1d4ed8;background:#1d4ed822;pointer-events:none;display:none}
+.empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--sub);text-align:center;padding:20px}
+#plan{max-width:100%;max-height:100%;display:block;margin:auto;position:absolute;inset:0}
+#planvw{position:absolute;top:10px;left:12px;z-index:2;display:flex;gap:2px;background:#fff;border:1px solid #e5e5e5;border-radius:8px;padding:3px}
+#planvw button{background:transparent;color:#5a5a5a;font-size:12px;padding:6px 10px;border-radius:6px}
+#planvw button.on{background:#000;color:#fff;font-weight:600}
+#three canvas{display:block}
+#log{position:absolute;inset:0;margin:0;padding:16px;overflow:auto;font:12px/1.6 ui-monospace,Consolas,monospace;background:#1e1e1e;color:#ddd;white-space:pre-wrap}
+.status{padding:10px 12px;border-radius:8px;margin-top:12px;font-size:13px;display:none}
+.status.run{display:block;background:#fff;border:1px solid var(--line)}
+.status.ok{display:block;background:#eff4ff;border:1px solid #bfd0f5}
+.status.err{display:block;font-weight:600;background:#f3f3f3;border:1px solid #bdbdbd;color:var(--err)}
+.bar{height:4px;background:var(--line);border-radius:2px;margin-top:8px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--acc);transition:width .4s}
+.legend{position:absolute;left:14px;bottom:12px;background:#fffd;border-radius:6px;padding:6px 10px;font-size:12px;color:var(--sub)}
+/* 생성 과정: 2D 작업 → 3D 부품 대응표 */
+#plive{background:#ffffff;--or:#1d4ed8;--bl:#2457d6}
+#plive.on{display:flex;flex-direction:column}
+.lv-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 18px;border-bottom:1px solid var(--line);background:var(--panel)}
+.lv-now{display:flex;align-items:baseline;gap:10px;min-width:0}
+.lv-now b{font-size:15px;white-space:nowrap}
+.lv-now em{font-style:normal;color:var(--sub);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lv-id{font:600 12px ui-monospace,Consolas,monospace;background:var(--or);color:#fff;border-radius:5px;padding:2px 7px}
+.lv-meta{font-size:13px;color:var(--sub);white-space:nowrap}
+.lv-body{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(320px,1fr);gap:14px;padding:14px}
+.lv-table{background:#fff;border:1px solid var(--line);border-radius:10px;overflow:auto;min-height:0}
+.lv-th,.lv-row{display:grid;grid-template-columns:78px minmax(0,1.35fr) 44px minmax(0,1fr) 84px;gap:10px;align-items:center;padding:0 12px}
+.lv-th{position:sticky;top:0;background:#fff;z-index:1;font-size:11px;color:var(--sub);padding-top:9px;padding-bottom:7px;border-bottom:1px solid var(--line)}
+.lv-row{min-height:58px;padding-top:6px;padding-bottom:6px;border-bottom:1px solid #ececec;border-left:3px solid transparent;transition:background .3s}
+.lv-row.hot{background:#eff4ff;border-left-color:var(--or)}
+.lv-row.s-todo .lv-part,.lv-row.s-skip .lv-part{color:#8a8a8a}
+.lv-row.s-skip{opacity:.55}
+.lv-pill{font-size:11px;border-radius:20px;padding:3px 0;text-align:center;background:#ececec;color:#5a5a5a}
+.lv-pill.p-done{background:#e3ebfb;color:#1a3f9e}.lv-pill.p-active{background:#dbe6fe;color:#1e40af;font-weight:600}
+.lv-pill.p-wait{background:#eef2fc;color:#2457d6}
+.lv-chips{display:flex;flex-wrap:wrap;gap:4px}
+.lv-chips i{font-style:normal;font-size:11.5px;border:1px solid #dedede;background:#fff;color:#6e6e6e;border-radius:6px;padding:2px 7px;white-space:nowrap}
+.lv-chips i small{font:10px ui-monospace,Consolas,monospace;margin-right:4px;opacity:.8}
+.lv-chips i.c-active{background:var(--or);border-color:var(--or);color:#fff}
+.lv-chips i.c-done{background:#e3ebfb;border-color:var(--bl);color:#1a3f9e}
+.lv-chips i.c-skip{text-decoration:line-through;opacity:.6}
+.lv-arrow{position:relative;height:12px}
+.lv-arrow i{position:absolute;left:0;right:6px;top:5px;border-top:2px solid #d6d6d6}
+.lv-arrow:after{content:"";position:absolute;right:0;top:1px;border:5px solid transparent;border-left:7px solid #d6d6d6;border-right:0}
+.lv-arrow.a-active i{border-top-color:var(--or)}.lv-arrow.a-active:after{border-left-color:var(--or)}
+.lv-arrow.a-wait i{border-top:2px dashed var(--bl)}.lv-arrow.a-wait:after{border-left-color:var(--bl)}
+.lv-arrow.a-done i{border-top-color:#1a1a1a}.lv-arrow.a-done:after{border-left-color:#1a1a1a}
+.lv-part b{display:block;font-size:13px}.lv-part small{display:block;font-size:11.5px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lv-thumb{height:48px;border-radius:5px;background:#f1f1f1;overflow:hidden}
+.lv-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.lv-side{display:flex;flex-direction:column;gap:14px;min-height:0}
+.lv-card{background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden;display:flex;flex-direction:column}
+.lv-cap{display:flex;justify-content:space-between;gap:8px;padding:8px 12px;font-size:12px;color:var(--sub);border-bottom:1px solid #ececec}
+.lv-cap b{color:var(--ink)}
+.lv-3d{flex:1.35;min-height:220px;position:relative}
+.lv-gl{flex:1;min-height:0;position:relative}.lv-gl canvas{position:absolute;inset:0;width:100%!important;height:100%!important}
+.lv-hint{position:absolute;right:10px;bottom:8px;font-size:11px;color:var(--sub);background:#fffc;border-radius:4px;padding:1px 6px}
+.lv-2d{flex:1;min-height:180px}
+.lv-2dbody{flex:1;min-height:0;display:grid;grid-template-columns:minmax(120px,42%) 1fr;gap:12px;padding:12px}
+.lv-plan{background:#f4f4f4;border-radius:6px;overflow:hidden;display:flex;align-items:center;justify-content:center;min-height:0}
+.lv-plan img{max-width:100%;max-height:100%;display:block}
+.lv-text{font-size:13px;overflow:auto}
+.lv-sid span{font:600 12px ui-monospace,Consolas,monospace;color:var(--or)}
+.lv-x{color:var(--or);font-size:12px;margin-top:2px}
+.lv-text p{margin:8px 0 0}.lv-text .lv-why{color:var(--sub);font-size:12px}
+@media (max-width:1100px){.lv-body{grid-template-columns:1fr;overflow:auto}.lv-table{overflow:visible}.lv-3d{min-height:300px}}
+@media (max-width:820px){.app{grid-template-columns:1fr;height:auto}main{height:80vh}}
+/* v1.4 왼쪽 칸 정리 */
+aside{display:flex;flex-direction:column;padding:0;overflow:hidden}
+.sb-head{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:16px 20px 10px}
+.sb-head .ver{margin:0;font-size:12px;color:var(--sub)}
+.keybtn{display:flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--line);padding:8px 10px;font-size:13px;min-height:40px}
+.keybtn span{font-size:12px;color:var(--sub)}
+.keybtn.miss span{color:#1e40af}
+.sb-scroll{flex:1;overflow:auto;padding:0 20px 12px}
+.sb-foot{border-top:1px solid var(--line);padding:12px 20px 14px;background:var(--panel)}
+.sb-foot .outs{margin:0 0 8px;font-size:12px;color:var(--sub)}.sb-foot .outs b{color:var(--ink);font-weight:600}
+.st{padding:12px 0}
+.st h2{display:flex;align-items:center}
+.chg{margin-left:auto;background:none;border:1px solid var(--line);padding:3px 10px;font-size:12px;color:var(--sub)}
+#s1.done .drop{display:none}
+#s1.done #srcinfo{margin-top:0;color:var(--ink)}
+.drop{padding:14px 12px}.drop .hint{margin-top:6px;font-size:11.5px;opacity:.75}
+.seg{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:3px;background:#ececec;border-radius:8px;padding:3px}
+.seg button{padding:8px 0;background:transparent;color:#5a5a5a;font-size:13px;border-radius:6px}
+.seg button.on{background:#fff;color:var(--ink);font-weight:700;box-shadow:0 1px 2px #0002}
+.pdesc{margin:6px 0 2px;font-size:12px;color:var(--sub);min-height:18px}
+.grp{margin:12px 0 4px;font-size:11.5px;font-weight:700;color:var(--sub);letter-spacing:.03em}
+.seg3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}
+.seg3 button{padding:7px 0;background:#fff;border:1px solid var(--line);font-size:12.5px;color:#5a5a5a;border-radius:6px}
+.seg3 button.on{border:1.5px solid var(--acc);color:var(--ink);font-weight:600}
+.tg{list-style:none;margin:0;padding:0}
+.tg li{border-bottom:1px solid #ededed}
+.tg label{display:flex;align-items:center;gap:10px;margin:0;padding:7px 0;font-size:13px;color:var(--ink);cursor:pointer}
+.tg label>span{flex:1;min-width:0}.tg small{display:block;font-size:11.5px;color:var(--sub)}
+.tg li.off label>span{color:#8a8a8a}
+input.sw{appearance:none;-webkit-appearance:none;flex:none;width:34px;height:20px;border-radius:10px;background:#cccccc;position:relative;cursor:pointer;margin:0;transition:background .15s}
+input.sw:before{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .15s}
+input.sw:checked{background:var(--ok)}input.sw:checked:before{left:16px}
+input.sw:disabled{opacity:.45;cursor:default}
+input.sw:focus-visible,.seg button:focus-visible,.seg3 button:focus-visible{outline:2px solid #2457d6;outline-offset:2px}
+details.more{margin-top:10px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:0 12px}
+details.more[open]{padding-bottom:12px}
+details.more summary{padding:9px 0;font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px;list-style:none}
+details.more summary::-webkit-details-marker{display:none}
+details.more summary:before{content:"▸";font-size:11px;color:var(--sub);transition:transform .15s}
+details.more[open] summary:before{transform:rotate(90deg)}
+details.more .sum{margin-left:auto;font-weight:400;font-size:12px;color:var(--sub)}
+#lawdet{margin-top:0}
+.n{display:inline-block;width:20px;height:20px;border-radius:50%;background:var(--acc);color:#fff;text-align:center;line-height:20px;font-size:12px}
+.scrim{position:fixed;inset:0;background:#1a1a1a55;z-index:20}
+.drawer{border:0;position:fixed;top:0;right:0;bottom:0;width:min(440px,100%);background:var(--panel);z-index:21;box-shadow:-8px 0 24px #0003;padding:20px 22px;overflow:auto;box-sizing:border-box}
+.dr-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}.dr-head h2{margin:0;font-size:17px}
+.x{background:none;font-size:22px;width:40px;height:40px;padding:0}
+.key{border:1px solid var(--line);border-radius:10px;background:#fff;padding:10px 12px;margin:10px 0}
+.key .kh{display:flex;justify-content:space-between;align-items:center}.key .kh label{margin:0;font-size:13px;font-weight:700;color:var(--ink)}
+.key small{display:block;font-size:12px;color:var(--sub);margin:2px 0 6px}
+.kb{font-size:11.5px;border-radius:999px;padding:1px 9px;background:#ececec;color:#5a5a5a}
+.kb.ok{background:#dbe6fe;color:#1e40af}
+
+/* v1.4: 흰 배경 + 검정 버튼 */
+.seg{background:#f2f2f2}.seg button.on{background:#000;color:#fff;box-shadow:none}
+.seg3 button.on{background:#000;border-color:#000;color:#fff}
+input.sw:checked{background:#000}
+.keybtn,.ghost,.chg{border-color:#111;color:#111}
+.keybtn.miss span{color:#1d4ed8}
+.go:hover:not(:disabled){background:#2a2a2a}
+.drop{border-color:#9a9a9a}
+.tabs button.on{border-color:#111;border-bottom-color:#fff}
+.tabs{border-bottom-color:#111}
+
+/* 스타일 1 · 얇은 선 미니멀 (사용자 선택 2026-11-03) */
+:root{--line:#e5e5e5;--sub:#6f6f6f}
+aside{border-right:1px solid var(--line)}
+.sb-head{padding:26px 28px 18px}.sb-head h1{font-size:17px;font-weight:600;letter-spacing:-.02em}
+.sb-scroll{padding:0 28px 16px}.sb-foot{padding:16px 28px 24px;border-top:1px solid var(--line)}
+.st{border-top:1px solid var(--line);padding:18px 0}
+h2,.st h2{font-size:14px;font-weight:600;margin:0 0 12px;letter-spacing:-.01em}
+h2 b,.n{display:inline;width:auto;height:auto;border-radius:0;background:none;color:var(--sub);font-size:11px;font-weight:500;line-height:inherit;margin-right:8px;font-variant-numeric:tabular-nums}
+h2 b:after,.n:after{content:" ·"}
+label{font-size:11px;color:var(--sub);margin:12px 0 2px}
+input[type=text],input[type=number],select{border:0;border-bottom:1px solid #111;border-radius:0;padding:6px 0;background:transparent;font-size:14px}
+input[type=text]:focus,input[type=number]:focus,select:focus{outline:0;border-bottom:2px solid #1d4ed8;padding-bottom:5px}
+.row{gap:16px}
+button{border-radius:0}
+.go{border-radius:0;font-weight:500;letter-spacing:.02em;min-height:48px}
+.go:after{content:" →"}
+.keybtn{border:0;background:none;padding:0;min-height:0;font-size:12px;text-decoration:underline;text-underline-offset:3px}
+.keybtn svg{display:none}
+.chg,.ghost{border:1px solid #111;border-radius:0;background:#fff}
+.chg{border:0;padding:0;text-decoration:underline;text-underline-offset:3px;color:#111}
+.drop{border:1px dashed #9a9a9a;border-radius:0}
+.seg{display:flex;gap:18px;background:none;padding:0;border-radius:0}
+.seg button,.seg button.on{flex:none;padding:0 0 4px;background:none;border-radius:0;box-shadow:none;font-size:14px;border-bottom:1.5px solid transparent;color:#8a8a8a}
+.seg button.on{color:#111;font-weight:600;border-bottom-color:#111}
+.seg3{gap:0;border:1px solid #111}
+.seg3 button{border:0;border-radius:0;border-left:1px solid #111;background:#fff;color:#111}
+.seg3 button:first-child{border-left:0}
+.seg3 button.on{background:#000;color:#fff;border-color:#111}
+.grp{font-size:11px;font-weight:500;letter-spacing:0;margin:16px 0 6px}
+.tg li{border-bottom:1px solid #f0f0f0}
+input.sw{width:30px;height:16px;border-radius:8px;background:#d4d4d4}
+input.sw:before{width:12px;height:12px;top:2px;left:2px}
+input.sw:checked{background:#000}input.sw:checked:before{left:16px}
+details.more{border:0;border-top:1px solid var(--line);border-radius:0;background:none;padding:0}
+details.more[open]{padding-bottom:6px}
+#lawdet{border-top:0}
+.status{border-radius:0}
+.status.run,.status.ok,.status.err{background:#fff;border:1px solid #111}
+.bar{border-radius:0;height:2px}
+.tabs{gap:24px;padding:22px 32px 0;border-bottom:1px solid var(--line);background:#fff}
+.tabs button,.tabs button.on{background:none;border:0;border-radius:0;margin:0;padding:0 0 10px;font-size:13px;color:#8a8a8a;border-bottom:1.5px solid transparent;margin-bottom:-1px}
+.tabs button.on{color:#111;font-weight:600;border-bottom-color:#111}
+#map{box-shadow:none;border:1px solid var(--line)}
+.legend{border-radius:0;border:1px solid var(--line);background:#fff}
+.drawer{box-shadow:none;border-left:1px solid #111}
+.scrim{background:#ffffffb0}
+.key{border:0;border-top:1px solid var(--line);border-radius:0;padding:14px 0 6px;margin:0}
+.kb{border-radius:0;background:none;padding:0;color:var(--sub)}.kb.ok{background:none;color:#1d4ed8}
+.lawt th{background:#fafafa}.lawt th,.lawt td{border-color:var(--line)}
+/* 생성 과정 탭 */
+.lv-head{border-bottom:1px solid var(--line)}
+.lv-table,.lv-card{border-radius:0;border-color:var(--line)}
+.lv-pill,.lv-chips i,.lv-thumb,.lv-plan,.lv-id,.lv-hint{border-radius:0}
+
+/* 스타일 1 시안에 더 가깝게 (2026-11-03 2차) */
+.st{padding:16px 0 18px}
+h2,.st h2{font-size:11px;font-weight:400;color:var(--sub);margin:0 0 8px;letter-spacing:0}
+h2 b,.n{color:var(--sub);font-size:11px;margin-right:4px}
+#s1.done #srcinfo{font-size:14px}
+.drop{font-size:13px}
+.pdesc,.sb-foot .outs,.tg small,.drop .hint{display:none}
+.seg{gap:16px;margin-top:2px}
+.seg3{display:flex;gap:16px;border:0}
+.seg3 button,.seg3 button:first-child,.seg3 button.on{flex:none;border:0;border-bottom:1.5px solid transparent;background:none;padding:0 0 4px;font-size:13px;color:#8a8a8a}
+.seg3 button.on{color:#111;font-weight:600;border-bottom-color:#111}
+.grp{font-size:11px;font-weight:400;color:var(--sub);margin:18px 0 6px}
+.tg li{border-bottom:1px solid #f0f0f0}
+.tg label{padding:9px 0;font-size:13px}
+input.sw,input.sw:checked{width:auto;height:auto;background:none;border-radius:0;font-size:12px;color:#8a8a8a}
+input.sw:before,input.sw:checked:before{content:"꺼짐";position:static;display:block;width:auto;height:auto;background:none;border-radius:0;font:12px "Pretendard Variable",Pretendard,sans-serif;color:#8a8a8a}
+input.sw:checked:before{content:"켜짐";color:#111}
+.tg li.off label>span{color:#9a9a9a}
+details.more{border-top:0;margin-top:14px}
+details.more summary{font-size:12px;font-weight:400;color:var(--sub);padding:4px 0}
+details.more summary:before{content:none}
+details.more summary:after{content:"›";margin-left:2px}
+details.more[open] summary:after{content:"⌄"}
+details.more .sum{display:none}
+#lawdet summary{font-size:11px}
+.sb-foot{border-top:0;padding:16px 28px 28px}
+#mapwrap{inset:24px 32px}
+#map{border:0;box-shadow:none}
+.tabs{padding:28px 32px 0;border-bottom:0}
+.tabs button,.tabs button.on{padding-bottom:6px}
+.view{background:#fff}
+.keybtn span,.keybtn.miss span{color:inherit;font-size:inherit}
+
+/* 1번 + 애플 느낌 (2026-11-03 3차) */
+:root{--ink:#1d1d1f;--sub:#86868b;--line:#e5e5ea}
+body{color:var(--ink);-webkit-font-smoothing:antialiased}
+.sb-head h1{font-size:22px;font-weight:700;letter-spacing:-.035em}
+.sb-head .ver{color:var(--sub)}
+input[type=text],input[type=number],select{border:0;border-radius:10px;background:#f5f5f7;padding:9px 12px;font-size:14px}
+input[type=text]:focus,input[type=number]:focus,select:focus{outline:0;border:0;padding:9px 12px;box-shadow:0 0 0 3px #0071e333;background:#fff}
+.row{gap:8px}
+.seg{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:2px;background:#eeeef0;border-radius:10px;padding:2px;margin-top:4px}
+.seg button,.seg button.on{padding:7px 0;border:0;border-radius:8px;font-size:13px;color:var(--ink);background:none}
+.seg button.on{background:#fff;font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+input.sw,input.sw:checked{width:42px;height:25px;border-radius:13px;background:#e3e3e6;transition:background .2s}
+input.sw:before,input.sw:checked:before{content:"";position:absolute;top:2px;left:2px;width:21px;height:21px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:left .2s}
+input.sw:checked{background:#1d1d1f}input.sw:checked:before{left:19px}
+.tg label{padding:8px 0}
+.go{border-radius:999px;background:#1d1d1f;font-weight:600;font-size:16px;letter-spacing:-.01em;min-height:50px}
+.go:after{content:none}
+.go:hover:not(:disabled){background:#000}
+.go:disabled{background:#d2d2d7;opacity:1;color:#fff}
+.chg,.keybtn{color:#0071e3;text-decoration:none}
+.keybtn span,.keybtn.miss span{color:inherit}
+.drop{border:1px dashed #c7c7cc;border-radius:14px;background:#fafafa}
+.ghost{border:0;border-radius:999px;background:#f5f5f7;color:var(--ink)}
+.status,.status.run,.status.ok,.status.err{border:0;border-radius:12px;background:#f5f5f7}
+.bar{border-radius:2px;height:3px}.bar i{background:#1d1d1f}
+details.more summary{color:#0071e3}
+.scrim{background:rgba(0,0,0,.18);backdrop-filter:blur(2px)}
+.drawer{top:16px;right:16px;bottom:16px;border:0;border-radius:22px;background:rgba(255,255,255,.92);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);box-shadow:0 20px 60px rgba(0,0,0,.18);width:min(420px,calc(100% - 32px))}
+.dr-head h2{font-size:22px;font-weight:700;letter-spacing:-.03em;color:var(--ink)}
+.x{border-radius:50%;width:32px;height:32px;background:#f0f0f2;font-size:18px;line-height:32px}
+.key{border-top:1px solid var(--line);padding:14px 0 8px}
+.key .kh label{font-size:14px}
+.tabs button,.tabs button.on{font-size:14px}
+.legend{border:0;border-radius:999px;background:rgba(255,255,255,.85);backdrop-filter:blur(12px)}
+#map{border-radius:4px}
+.lv-table,.lv-card{border-radius:14px}
+.lv-pill{border-radius:999px}.lv-chips i{border-radius:6px}.lv-thumb,.lv-plan{border-radius:8px}.lv-id{border-radius:6px}
+/* v1.5: 진행·완성·오류 + 생성 과정 목록 (3D·2D 실시간은 그대로) */
+:root{--sub:#6e6e73;--link:#0066cc}
+.chg,.keybtn,details.more summary,a.lk{color:var(--link)}
+#plive{background:#fff}
+.lv-body{display:grid;grid-template-columns:minmax(300px,380px) minmax(0,1fr);gap:24px;padding:20px 28px 28px;height:100%;box-sizing:border-box}
+.lv-list{min-height:0;overflow:auto}
+.lv-lh{display:flex;justify-content:space-between;font-size:12px;color:var(--sub);margin-bottom:4px;font-variant-numeric:tabular-nums}
+.lv-list ul{list-style:none;margin:0;padding:0}
+.lv-r{display:flex;align-items:center;gap:12px;padding:8px 10px;margin:0 -10px;border-radius:10px;transition:background .3s}
+.lv-r.r-now{background:#f0f5ff}
+.lv-dot{flex:none;width:8px;height:8px;border-radius:50%;box-sizing:border-box;border:1.5px solid #d2d2d7}
+.r-done .lv-dot{background:#1d1d1f;border-color:#1d1d1f}.r-now .lv-dot{background:var(--link);border-color:var(--link)}
+.lv-nm{flex:1;min-width:0}.lv-nm b{display:block;font-size:14px;font-weight:500}.r-now .lv-nm b{font-weight:700}
+.r-todo .lv-nm b,.r-skip .lv-nm b{color:var(--sub);font-weight:400}.r-skip{opacity:.6}
+.lv-nm small{display:block;font-size:12px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lv-st{flex:none;font-size:12px;color:var(--sub)}.r-done .lv-st{color:var(--ink)}.r-now .lv-st{color:var(--link);font-weight:600}
+.lv-side{display:flex;flex-direction:column;gap:16px;min-height:0}
+.lv-3d{flex:1.35;min-height:260px;position:relative;border-radius:18px;overflow:hidden;background:#f5f5f7}
+.lv-gl{position:absolute;inset:0}.lv-gl canvas{position:absolute;inset:0;width:100%!important;height:100%!important}
+.lv-chip{position:absolute;left:14px;top:14px;background:rgba(255,255,255,.9);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-radius:12px;padding:8px 12px;pointer-events:none}
+.lv-chip small{display:block;font-size:12px;color:var(--sub)}.lv-chip b{font-size:15px}
+.lv-hint{position:absolute;right:12px;bottom:10px;font-size:12px;color:#3a3a3c;background:rgba(255,255,255,.85);border-radius:999px;padding:4px 10px;pointer-events:none}
+.lv-2d{flex:1;min-height:180px;display:flex;gap:20px;border-radius:18px;background:#f5f5f7;padding:16px;box-sizing:border-box}
+.lv-plan{height:100%;aspect-ratio:1;flex:none;border-radius:10px;background:#fff;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.lv-plan img{max-width:100%;max-height:100%;display:block}
+.lv-text{flex:1;min-width:0;overflow:auto;font-size:14px}
+.lv-text small{display:block;font-size:12px;color:var(--sub)}.lv-text>b{display:block;font-size:20px;font-weight:700;letter-spacing:-.03em;margin-top:2px}
+.lv-x{color:var(--link);font-size:12px;margin-top:2px}.lv-text p{margin:8px 0 0;line-height:1.6}.lv-text .lv-why{color:var(--sub);font-size:13px;margin-top:4px}
+@media (max-width:1100px){.lv-body{grid-template-columns:1fr;overflow:auto;height:auto}.lv-3d{min-height:320px}}
+/* 왼쪽 칸: 만드는 중 · 완성 */
+.panel{flex:1;overflow:auto;padding:0 28px 12px}
+.panel .top{border-top:1px solid var(--line);padding-top:18px}
+.panel .k{margin:0;font-size:12px;color:var(--sub)}
+.panel .big{margin:4px 0 0;font-size:28px;font-weight:700;letter-spacing:-.04em}
+.panel .now{margin:2px 0 0;font-size:13px;color:var(--sub)}
+.pbar{height:4px;background:#eeeef0;border-radius:2px;margin-top:14px;overflow:hidden}.pbar i{display:block;height:100%;width:0;background:#1d1d1f;transition:width .4s}
+.steps{list-style:none;margin:20px 0 0;padding:0}
+.steps li{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f0f0f2;font-size:14px}
+.steps .d{flex:none;width:20px;height:20px;border-radius:50%;box-sizing:border-box;border:1.5px solid #d2d2d7;display:inline-flex;align-items:center;justify-content:center;font-size:11px;color:#fff}
+.steps li.done .d{background:#1d1d1f;border-color:#1d1d1f}.steps li.now .d{border:6px solid var(--link)}
+.steps li.todo span:nth-child(2){color:var(--sub)}.steps li.now span:nth-child(2){font-weight:600}
+.steps span:nth-child(2){flex:1}.steps .t{font-size:12px;color:var(--sub);font-variant-numeric:tabular-nums}
+.panel .note{margin:16px 0 0;font-size:12px;color:var(--sub);line-height:1.6}
+.ok-ic{display:inline-flex;width:36px;height:36px;border-radius:50%;background:#1d1d1f;color:#fff;align-items:center;justify-content:center}
+.facts{margin:20px 0 0;display:grid;grid-template-columns:1fr auto;font-size:14px}
+.facts dt,.facts dd{margin:0;padding:10px 0;border-bottom:1px solid #f0f0f2}.facts dt{color:var(--sub)}.facts dd{font-variant-numeric:tabular-nums;text-align:right}
+.chk2{margin-top:18px;background:#f5f5f7;border-radius:14px;padding:12px 14px}.chk2 b{font-size:13px}.chk2 ul{margin:6px 0 0;padding-left:16px;font-size:13px;color:#3a3a3c;line-height:1.6}
+.files{list-style:none;margin:8px 0 0;padding:0}
+.files li{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid #f0f0f2}
+.files .ext{flex:none;width:38px;height:38px;border-radius:10px;background:#f5f5f7;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--sub)}
+.files .nm{flex:1;min-width:0}.files .nm b{display:block;font-size:14px;font-weight:600}.files .nm small{display:block;font-size:12px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.files button{background:none;color:var(--link);font-size:13px;padding:6px 0}
+.sb-foot .ghost2{width:100%;min-height:46px;border-radius:999px;background:#f5f5f7;color:var(--ink);font-size:15px;margin-top:8px}
+.sb-foot .lk{display:block;width:100%;background:none;color:var(--link);font-size:13px;padding:10px 0 0}
+/* 오류 안내 */
+.errcard{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:32px;background:rgba(255,255,255,.7);backdrop-filter:blur(6px);z-index:5}
+.errcard>section{width:min(560px,100%);border-radius:22px;background:#fff;box-shadow:0 0 0 1px #e5e5ea,0 20px 60px rgba(0,0,0,.08);padding:34px 38px;box-sizing:border-box}
+.errcard .bang{display:inline-flex;width:40px;height:40px;border-radius:50%;background:#1d1d1f;color:#fff;align-items:center;justify-content:center;font-weight:700;font-size:20px}
+.errcard h2{margin:16px 0 0;font-size:26px;font-weight:700;letter-spacing:-.035em;color:var(--ink)}
+.errcard dl{margin:20px 0 0;display:grid;grid-template-columns:72px 1fr;gap:10px 16px;font-size:15px;line-height:1.55}
+.errcard dt{color:var(--sub)}.errcard dd{margin:0}
+.errcard .acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:24px}
+.errcard .acts button{min-height:46px;padding:0 22px;border-radius:999px;font-size:15px;background:#f5f5f7;color:var(--ink)}
+.errcard .acts button.pri{background:#1d1d1f;color:#fff;font-weight:600}
+.errcard .tech{margin-top:18px;font-size:13px}.errcard .tech summary{color:var(--link);cursor:pointer}
+.errcard pre{white-space:pre-wrap;font:12px/1.5 ui-monospace,Consolas,monospace;color:var(--sub);max-height:140px;overflow:auto;margin:8px 0 0}
+/* 글자 최소 12px */
+label,.info,.grp,h2,.st h2,h2 b,.n,.kb,.legend,.sb-head .ver{font-size:12px}
+
+/* 대지 파일 정리 화면 */
+#prep{position:fixed;inset:0;background:#fff;z-index:60;display:none;grid-template-rows:auto 1fr}
+#prep.on{display:grid}
+.pp-head{display:flex;align-items:center;gap:14px;padding:14px 20px;border-bottom:1px solid var(--line)}
+.pp-head h3{margin:0;font-size:16px}
+.pp-head .info{margin:0;flex:1}
+.pp-head button{padding:9px 16px}
+.pp-body{display:grid;grid-template-columns:440px 1fr;min-height:0}
+.pp-list{overflow:auto;border-right:1px solid var(--line);padding:6px 0}
+.pp-row{display:grid;grid-template-columns:1fr 112px;gap:8px;align-items:center;padding:7px 18px;border-bottom:1px solid #f0f0f0}
+.pp-row:hover,.pp-row.hl{background:#f4f6fb}
+.pp-row b{font-weight:600;font-size:13px;word-break:break-all}
+.pp-row small{display:block;color:var(--sub);font-size:11.5px}
+.pp-row em{font-style:normal;color:var(--ok);font-size:11px;margin-left:6px}
+.pp-row.r7 b{color:#9a9a9a;font-weight:500}
+.pp-row select{padding:5px 6px;font-size:13px}
+.pp-sec{padding:12px 18px 4px;font-size:12px;color:var(--sub);font-weight:600}
+.pp-view{position:relative;min-width:0;min-height:0}
+#ppsvg{width:100%;height:100%;display:block;background:#fff}
+#ppsvg path,#ppsvg circle{vector-effect:non-scaling-stroke}
+.r0 path{stroke:#1d4ed8;stroke-width:2.6;fill:rgba(29,78,216,.05)}
+.r1 path{stroke:#1d4ed8;stroke-width:1.2;fill:rgba(29,78,216,.16)}
+.r2 circle{fill:#1d4ed8;stroke:#fff;stroke-width:1}
+.r3 path{stroke:#6f8fe0;stroke-width:1;fill:none}
+.r4 path{stroke:#555;stroke-width:1;fill:url(#pphatch)}
+.r5 path{stroke:#111;stroke-width:.8;fill:#2b2b2b}
+.r6 path{stroke:#7a7a7a;stroke-width:1.3;fill:none}
+.r7 path{stroke:#d9d9d9;stroke-width:.6;fill:none}
+.r7 circle{fill:#d0d0d0}
+#ppsvg g.hl path{stroke:#1d4ed8!important;stroke-width:3.2!important;opacity:1}
+#ppsvg g.hl circle{fill:#1d4ed8!important}
+.pp-legend{position:absolute;left:14px;bottom:12px;background:#fffe;border:1px solid var(--line);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--sub);display:flex;gap:12px;flex-wrap:wrap;max-width:calc(100% - 28px)}
+.pp-legend i{display:inline-block;width:14px;height:10px;margin-right:4px;vertical-align:-1px;border:1px solid transparent}
+.pp-note{position:absolute;right:14px;top:12px;max-width:380px;background:#fffe;border:1px solid var(--line);border-radius:6px;padding:8px 11px;font-size:12px;color:var(--sub)}
+/* v2.0 사용 편의성 (2026-11-17) */
+.pdesc{display:block!important;margin:8px 0 0}
+.sb-foot .outs{display:block!important}
+#s1 .drop{padding:14px 12px;font-size:13px}
+#s1 .drop .hint{display:block;margin-top:4px;font-size:12px;opacity:1;color:var(--sub)}
+#s1.done .drop{display:block;padding:8px 12px;font-size:12.5px}
+#s1.done .drop .big1,#s1.done .drop .hint{display:none}#s1 .drop .small1{display:none}#s1.done .drop .small1{display:inline}
+.fl{list-style:none;margin:10px 0 0;padding:0}
+.fl li{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f0f0f2;font-size:13px}
+.fl .tag{flex:none;font-size:11px;font-weight:600;padding:2px 7px;border-radius:5px;background:#f0f0f2;color:#3a3a3c}
+.fl .tag.s{background:#e8efff;color:#1d4ed8}
+.fl .nm{flex:1;min-width:0}.fl .nm b{display:block;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fl .nm small{display:block;color:var(--sub);font-size:12px}
+.fl .okc{flex:none;width:16px;height:16px;border-radius:50%;background:#1d1d1f;color:#fff;font-size:10px;display:inline-flex;align-items:center;justify-content:center}
+.fl .spin{flex:none;width:14px;height:14px;border-radius:50%;border:2px solid #d2d2d7;border-top-color:#1d4ed8;animation:sp 0.8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.fl .lk2,.lk2{background:none;border:0;padding:0;color:var(--link);font-size:12px;font-weight:600;cursor:pointer;flex:none}
+.snote{font-size:12.5px;line-height:1.5;border-radius:10px;padding:9px 11px;margin-top:10px;background:#f5f5f7;color:var(--ink)}
+.snote.b{background:#eff4ff;color:#1d4ed8}
+.snote button{display:inline-block;margin-top:6px;background:#1d1d1f;color:#fff;border-radius:999px;padding:6px 12px;font-size:12.5px}
+.rsum{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;font-size:13px}
+.rsum b{font-size:15px}.rsum .r{margin-left:auto;color:var(--sub);font-size:12px}
+.rsum #rhow{color:var(--sub)}
+#rangeedit{margin-top:4px}
+details.more summary{font-size:13px;color:var(--link)}
+details.more#optdet,details.more#lawdet{margin-top:12px;border-top:1px solid var(--line);padding-top:4px}
+#optdet>summary,#lawdet>summary{color:var(--ink);font-size:13px;padding:8px 0}
+#optdet>summary:after,#lawdet>summary:after{margin-left:auto;color:var(--sub)}
+#optdet details.more summary{color:var(--link)}
+.now2{margin:8px 0 0;font-size:12.5px;color:var(--link);min-height:18px;font-variant-numeric:tabular-nums}
+.steps li .sub{display:block;font-size:12px;color:var(--link);font-weight:400;margin-top:2px}
+/* 결과 탭 안 작은 탭 */
+#rsub{position:absolute;top:12px;left:16px;z-index:3;display:flex;gap:2px;background:#fff;border:1px solid #e5e5e5;border-radius:9px;padding:3px}
+#rsub button{background:transparent;color:#5a5a5a;font-size:12.5px;padding:6px 11px;border-radius:7px}
+#rsub button.on{background:#000;color:#fff;font-weight:600}
+#rsub button:disabled{opacity:.35;cursor:default}
+#plan{inset:56px 0 0 0!important;max-height:calc(100% - 64px)}
+#plog{padding-top:60px!important}
+#planvw{display:none!important}
+.treetg{position:absolute;right:16px;top:12px;z-index:3;display:flex;gap:6px}
+.treetg button{border:1px solid #e5e5e5}
+.treetg button{background:rgba(255,255,255,.92);border-radius:999px;font-size:12.5px;padding:6px 12px;color:var(--ink)}
+.treetg button.off{color:var(--sub);text-decoration:line-through}
+/* 지난 결과 */
+#recent{position:absolute;left:0;right:0;bottom:0;z-index:3;display:flex;align-items:center;gap:6px;flex-wrap:nowrap;overflow:hidden;white-space:nowrap;padding:10px 20px;background:rgba(255,255,255,.94);border-top:1px solid var(--line);font-size:12.5px;color:var(--sub)}
+#recent button{background:none;padding:2px 6px;font-size:12.5px;color:var(--ink);border-radius:6px}
+#recent button:hover{background:#f0f0f2}#recent button.on{font-weight:700}
+/* 완성 화면 파일 묶음 */
+.dline{margin:6px 0 0;font-size:13px;color:var(--sub);line-height:1.6}
+.fgrp{margin-top:16px}.fgrp>p{margin:0 0 6px;font-size:12px;color:var(--sub)}
+.fcard{display:flex;align-items:center;gap:10px;padding:9px 10px;border:1px solid #e5e5ea;border-radius:12px;margin-bottom:6px}
+.fcard .ext{flex:none;width:38px;padding:5px 0;text-align:center;border-radius:7px;background:#f5f5f7;font-size:10.5px;font-weight:700;color:#3a3a3c}
+.fcard .nm{flex:1;min-width:0}.fcard .nm b{display:block;font-size:13.5px;font-weight:600}
+.fcard .nm small{display:block;font-size:12px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fcard button{flex:none;border-radius:999px;padding:5px 12px;font-size:12.5px;font-weight:600;background:#f0f0f2;color:var(--ink)}
+.fcard button.pri{background:#1d1d1f;color:#fff}
+details.fmore{margin-top:10px}details.fmore summary{font-size:12.5px;color:var(--link);cursor:pointer}
+.fpath{font-size:12px;color:var(--sub);margin:0 0 8px;word-break:break-all}.fpath b{color:var(--ink)}
+/* 지도 확대 */
+#mapwrap{overflow:hidden}
+#mapbox{transform-origin:0 0}
+#mapbox.grab #map{cursor:grabbing}
+#tile{position:absolute;pointer-events:none;display:none}
+#siteov *{vector-effect:non-scaling-stroke}
+#zoomui{position:absolute;right:20px;top:16px;z-index:4;display:flex;flex-direction:column;gap:4px;align-items:flex-end}
+#zoomui div{display:flex;gap:4px}
+#zoomui button{width:34px;height:34px;padding:0;border-radius:9px;background:#fff;border:1px solid #d2d2d7;font-size:17px;line-height:1;color:var(--ink)}
+#zoomui button.w{width:auto;padding:0 10px;font-size:12.5px}
+#zoomui small{background:rgba(255,255,255,.9);border-radius:6px;padding:3px 8px;font-size:12px;color:var(--sub)}
+.pp-row b .kn{font-weight:400;color:var(--sub);margin-left:6px}
+details.ppmap>summary{padding:12px 18px 4px;font-size:12px;color:var(--link);cursor:pointer}
+</style>
+</head>
+<body>
+<div class="app">
+<aside>
+ <div class="sb-head">
+  <div><h1>콘타 모델 만들기</h1><p class="ver">v2.0.3 · 2026-11-18</p></div>
+  <button type="button" class="keybtn" id="keybtn" aria-haspopup="dialog"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M15 8l2 2"/></svg>인증키 <span id="keycount">0/4</span></button>
+ </div>
+ <div class="sb-scroll" id="setup">
+  <section class="st" id="s1">
+    <h2><b>01</b>파일 넣기<button type="button" class="chg" id="s1chg" hidden>모두 지우기</button></h2>
+    <div class="drop" id="drop"><span class="big1">수치지도 <strong>zip</strong>과 대지 도면 <strong>DXF</strong>를<br>한꺼번에 끌어 놓거나 눌러서 고르세요</span><span class="small1">+ 파일 더 넣기 (옆 도엽 zip · 대지 DXF)</span>
+      <input type="file" id="file" accept=".zip,.dxf,.geojson,.json,.shp" multiple hidden>
+      <div class="hint">국토정보플랫폼 수치지도 2.0 (SHP) zip · 순서는 상관없어요 · 옆 도엽은 여러 개 함께</div></div>
+    <ul class="fl" id="flist"></ul>
+    <div class="info" id="srcinfo"></div>
+    <div class="info" id="siteres"></div>
+    <div id="sitenote"></div>
+  </section>
+
+  <section class="st" id="s2">
+    <h2><b>02</b>범위<button type="button" class="chg" id="s2chg" hidden>바꾸기</button></h2>
+    <div class="rsum"><b id="rsz">500 × 500 m</b><span id="rhow">· 지도를 눌러 가운데를 고르세요</span><span class="r" id="rangeinfo">1:1000이면 모형 50 × 50 cm</span></div>
+    <div id="rangeedit">
+    <label for="place">가운데 건물·지명 (또는 오른쪽 지도 클릭)</label>
+    <input type="text" id="place" list="names" placeholder="예: 삼선푸르지오, 한성대학교" disabled>
+    <datalist id="names"></datalist>
+    <div class="row">
+      <div><label for="w">가로 (m)</label><input type="number" id="w" value="500" min="50" step="50"></div>
+      <div><label for="h">세로 (m)</label><input type="number" id="h" value="500" min="50" step="50"></div>
+    </div>
+    </div>
+  </section>
+
+  <section class="st">
+    <h2><b>03</b>무엇에 쓸 모형인가요?</h2>
+    <div class="seg" role="radiogroup" aria-label="모형 용도" id="presets">
+      <button type="button" role="radio" data-p="laser" title="계단판 + 매스, 판마다 레이저 DXF와 나무 구멍">레이저</button>
+      <button type="button" role="radio" data-p="render" title="경사 매스, 창문·재료, 나무·도로 디테일, 스케치업까지 전부">렌더</button>
+      <button type="button" role="radio" data-p="quick" title="경사면 + 매스만. 범위가 맞는지 먼저 볼 때">빠르게</button>
+      <button type="button" role="radio" data-p="custom" title="아래 항목을 하나씩 켜고 끄기">직접</button>
+    </div>
+    <p class="pdesc" id="pdesc"></p>
+
+    <details class="more" id="optdet"><summary>세부 설정 · 지형 · 디테일 · 넣을 것</summary>
+    <div class="grp">지형</div>
+    <div class="seg3" id="terrainseg">
+      <button type="button" data-v="combo">계단 + 경사</button><button type="button" data-v="step">계단판만</button><button type="button" data-v="slope">경사면만</button>
+    </div>
+    <div class="grp">지형 다듬기</div>
+    <div class="seg3" id="fitseg" style="grid-template-columns:1fr 1fr" title="부드럽게: 레이저로 자르기 좋게 등고선을 약 4m 폭으로 고릅니다. 등고선 그대로: 채석장 계단·옹벽처럼 좁게 꺾이는 곳을 살립니다(판 윤곽이 더 복잡해짐)">
+      <button type="button" data-v="smooth" class="on">부드럽게</button><button type="button" data-v="exact">등고선 그대로</button>
+    </div>
+    <select id="terrain" hidden><option value="combo">combo</option><option value="step">step</option><option value="slope">slope</option></select>
+
+    <div class="grp">건물 디테일</div>
+    <div class="seg3" id="detailseg">
+      <button type="button" data-v="1">1 매스</button><button type="button" data-v="2">2 지붕</button><button type="button" data-v="3">3 창문·재료</button>
+    </div>
+    <select id="detail" hidden><option value="3">3</option><option value="2">2</option><option value="1">1</option></select>
+
+    <div class="grp">넣을 것</div>
+    <ul class="tg">
+      <li title="수치지도 식생 면(수림지·조림지·과수원) + 항공사진 수관(브이월드 키가 있을 때) + 위성영상(Sentinel-2)을 겹쳐 산지 숲과 조경 녹지를 찾습니다. 잔디·논밭은 뺍니다"><label><span>숲·녹지 나무<small>식생 + 위성</small></span><input type="checkbox" class="sw" id="green" checked></label></li>
+      <li title="서울은 서울시 가로수 대장(2026), 그 밖의 85개 시군구는 산림청 가로수 현황(2025)의 실제 위치·수종(내장). 대장에 없는 나무는 항공사진에서 확인된 것만 보충합니다"><label><span>가로수<small>가로수 대장 (내장)</small></span><input type="checkbox" class="sw" id="street" checked></label></li>
+      <li title="위치 자료 파일이나 수치지도에 있으면 그 위치로, 없으면 도로폭에 따라 보통 간격으로 추정 배치합니다(레이어 '가로등::추정')"><label><span>가로등·보안등<small>자료 파일 → 수치지도 → 추정</small></span><input type="checkbox" class="sw" id="lights" checked></label></li>
+      <li title="차선·중앙선·정지선·횡단보도, 신호등, 전봇대, 주차 구획, 버스 정류장·지하철 출입구, 교통섬 화단. 건물 디테일 2 이상에서 만듭니다"><label><span>도로 디테일<small>차선 · 횡단보도 · 신호등 · 정류장</small></span><input type="checkbox" class="sw" id="roadx" checked></label></li>
+      <li title="수치지도 입체교차부·보행육교·교량 면으로 상판과 교각을 세웁니다"><label><span>고가도로·육교·교량<small>수치지도</small></span><input type="checkbox" class="sw" id="structs" checked></label></li>
+      <li title="이 PC 에 스케치업이 있으면 model_sketchup.skp(2021 형식, 판·건물은 밀어 올린 진짜 면)를 직접 만듭니다. 스케치업 창이 잠깐 열렸다 닫힙니다. 없으면 .json·.dae + 불러오기 확장"><label><span>스케치업 파일<small>.skp (스케치업이 있으면 직접)</small></span><input type="checkbox" class="sw" id="skp" checked></label></li>
+    </ul>
+
+    <details class="more">
+      <summary>세부 설정 <span class="sum" id="moresum">1:1000 · 판 5 m</span></summary>
+      <div class="row">
+        <div><label for="scale">축척 1 :</label><input type="number" id="scale" value="1000" step="100"></div>
+        <div><label for="interval">판 한 장 높이 (m)</label><input type="number" id="interval" value="5" step="1" min="1"></div>
+      </div>
+      <div class="info" id="sheetinfo">1:1000에서 5m = 판 두께 5mm</div>
+      <div class="row">
+        <div><label for="floor">층 높이 (m)</label><input type="number" id="floor" value="3.3" step="0.1"></div>
+        <div><label for="hole">나무 구멍 지름 (mm)</label><input type="number" id="hole" value="1.0" step="0.1"></div>
+      </div>
+      <div class="row">
+        <div><label for="fradius">창문 낼 범위 (m)</label><input type="number" id="fradius" placeholder="비우면 전부" min="20" step="10"></div>
+        <div><label for="roadt">곡면 위 길 두께 (m)</label><input type="number" id="roadt" value="1.0" step="0.1" min="0.1"></div>
+      </div>
+      <label for="year">위성영상 연도</label><input type="number" id="year" placeholder="비우면 최근 여름">
+      <label for="out">결과 폴더</label><input type="text" id="out" placeholder="비우면 사용자 폴더 › 콘타모델">
+    </details>
+    <details class="more">
+      <summary>자료 파일 (선택) <span class="sum" id="filesum">없음</span></summary>
+      <div id="aerialbox"><label for="afile">항공사진 (GeoTIFF 등 좌표 있는 영상)</label><input type="text" id="afile" placeholder="예: C:\정사영상\성북.tif"></div>
+      <div id="lightbox"><label for="lfile">가로등 위치 (CSV·XLSX)</label><input type="text" id="lfile" placeholder="예: C:\자료\전국보안등정보표준데이터.csv"></div>
+      <div id="roadxbox"><label for="rfile">도로시설 위치 (여러 개는 ; 로 구분)</label><input type="text" id="rfile" placeholder="예: C:\자료\전국횡단보도표준데이터.csv"></div>
+      <div id="dembox"><label for="demfile">수치표고모델 DEM (여러 개는 ; 로 구분)</label><input type="text" id="demfile" placeholder="예: C:\자료\DEM\37713_5m.img"><p class="hint" style="margin:4px 0 0;font-size:12px;color:#666">넣으면 등고선 대신 이 높이로 지형을 만들어 절토면·옹벽 같은 꺾임이 살아나요. GeoTIFF·IMG·ASC 격자, X Y Z 텍스트, 또는 그 zip·폴더. 5m 이하 격자만 씁니다(90m는 등고선보다 거칠어 건너뜀).</p></div>
+      <div id="hdbox"><label for="hddir">정밀도로지도 폴더 (받은 zip 을 풀지 말고 한 폴더에)</label><input type="text" id="hddir" placeholder="비워 두면 다운로드·바탕 화면·D 드라이브 등에서 찾아요"><p class="hint" style="margin:4px 0 0;font-size:12px;color:#666">국토지리정보원 <a href="https://map.ngii.go.kr/ms/pblictn/preciseRoadMap.do" target="_blank" rel="noopener">정밀도로지도</a>를 각자 받아 zip 그대로 한 폴더에 두세요. 프로그램에는 들어 있지 않아요(재배포 금지 자료).</p></div>
+    </details>
+    </details>
+
+    <details class="more" id="lawdet">
+      <summary>대지 옵션 · 법규 검토 <span class="sum" id="sitesum">선택</span></summary>
+      <div class="info" style="margin-top:6px">대지 도면은 01번 칸에 넣으면 돼요. 여기서는 연속지적도 SHP zip·GeoJSON을 넣거나, 지도에 직접 그리거나, 주소로 찾을 수 있어요.</div>
+      <div class="row" style="margin-top:8px">
+        <button class="ghost" id="sitefilebtn" type="button" title="CAD(DXF) 닫힌 폴리선, 연속지적도 SHP(zip), GeoJSON. 수치지도와 같은 실제 좌표로 그린 파일">경계 파일 넣기</button>
+        <button class="ghost" id="sitedrawbtn" type="button" title="지도에서 꼭짓점을 차례로 눌러 그립니다. 첫 점을 다시 누르거나 두 번 누르면 닫힙니다">지도에 그리기</button>
+      </div>
+      <input type="file" id="sitefile" accept=".dxf,.zip,.shp,.geojson,.json" hidden>
+      <ul class="tg" style="margin-top:6px">
+        <li title="대지 안의 건물·길·나무·가로등·노면표시를 빼고 빈 터로 만듭니다. 지형(등고선)은 그대로 둡니다. 발자국의 절반 넘게 대지 안에 든 건물만 뺍니다"><label><span>대지 위 비우기<small>건물 · 길 · 나무를 빼고 빈 터로</small></span><input type="checkbox" class="sw" id="siteclear"></label></li>
+        <li title="사업지 도면에 레벨·레벨판이 있어도 대지 안 지형을 바꾸지 않습니다. 대지 경계선만 원래 등고(계단판) 위에 눌러 붙여 표시합니다(Rhino 대지::경계(계단판 위)·레이저 SITE 각인)"><label><span>대지 안 원래 지형 유지<small>경계선만 등고 위에 눌러 표시</small></span><input type="checkbox" class="sw" id="sitekeep"></label></li>
+      </ul>
+      <button class="ghost" id="siteclr" type="button" style="margin-top:8px;width:100%" hidden>대지 경계 지우기</button>
+      <div class="grp">주소로 찾기 · 법규 검토</div>
+      <div class="info">주소로 필지 경계와 토지이용계획을 받아 건폐율·용적률·정북일조를 1차 검토합니다. 브이월드 키에 지오코더·토지이용계획정보·토지특성정보 API가 추가돼 있어야 합니다.</div>
+      <label for="saddr">대지 주소 (지번 또는 도로명)</label><input type="text" id="saddr" placeholder="예: 서울특별시 성북구 삼선동2가 296" autocomplete="off">
+      <button class="ghost" id="lawbtn" style="margin-top:10px;width:100%">법규 검토</button>
+      <div class="info" id="lawres"></div>
+    </details>
+  </section>
+ </div>
+ <div class="panel" id="runp" hidden>
+  <div class="top"><p class="k">만드는 중</p><p class="big" id="rbig">준비 중</p><p class="now" id="rnow"></p>
+   <div class="pbar"><i id="rbar"></i></div><p class="now2" id="rsub2"></p></div>
+  <ol class="steps" id="rsteps"></ol>
+  <p class="note"><span id="rsum"></span><br>브라우저 탭을 닫아도 계속 만들어요.<span class="desk"> 검은 창만 닫지 마세요.</span></p>
+ </div>
+ <div class="panel" id="donep" hidden>
+  <div class="top"><span class="ok-ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg></span>
+   <p class="big" style="margin-top:12px">완성됐어요</p><p class="now" id="dtime"></p></div>
+  <p class="dline" id="dline"></p>
+  <dl class="facts" id="dfacts" hidden></dl>
+  <div id="dgroups"></div>
+  <details class="chk2" id="dnotes" hidden><summary><b>확인해 주세요 · <span id="dnotesn"></span>가지</b></summary><ul id="dnotesl"></ul></details>
+  <ul class="files" id="dfiles" hidden></ul>
+ </div>
+ <div class="sb-foot">
+  <div id="footSetup">
+   <p class="outs">만들어질 파일 · <b id="outs">3dm · 레이저 판</b></p>
+   <button class="go" id="go" disabled>모델 만들기</button>
+   <div class="status" id="status"></div>
+  </div>
+  <div id="footRun" hidden><button type="button" class="ghost2" id="stop">멈추기</button></div>
+  <div id="footDone" hidden>
+   <p class="fpath" id="fpath"></p>
+   <button type="button" class="go" id="openf">결과 폴더 열기</button>
+   <button type="button" class="ghost2" id="again">설정 그대로 다시 만들기</button>
+   <button type="button" class="lk" id="change">설정 바꿔서 새로 만들기</button>
+  </div>
+ </div>
+</aside>
+
+<div class="scrim" id="scrim" hidden></div>
+<section class="drawer" id="keys" role="dialog" aria-modal="true" aria-labelledby="keysttl" hidden>
+  <div class="dr-head"><h2 id="keysttl">인증키 설정</h2><button type="button" class="x" id="keyclose" aria-label="닫기">×</button></div>
+  <p class="info" style="margin-top:0">한 번 넣으면 이 PC 브라우저에 저장돼서 다음에 다시 넣지 않아도 됩니다. 키가 없으면 그 자료만 빼고 만듭니다.</p>
+  <div class="key"><div class="kh"><label for="vkey">브이월드</label><span class="kb" data-k="vkey"></span></div>
+    <small>항공사진 · 지적 · 건물 위치 · 법규 검토 (한 키로 전부)</small><input type="text" id="vkey" placeholder="vworld.kr에서 무료 발급" autocomplete="off"><input type="hidden" id="vkey2"></div>
+  <div class="key"><div class="kh"><label for="dkey">공공데이터포털</label><span class="kb" data-k="dkey"></span></div>
+    <small>건축물대장: 실제 높이 · 층수 · 준공연도 (브이월드 키와 함께)</small><input type="text" id="dkey" placeholder="data.go.kr 일반 인증키" autocomplete="off"></div>
+  <div class="key"><div class="kh"><label for="skey">서울 열린데이터광장</label><span class="kb" data-k="skey"></span></div>
+    <small>횡단보도 위치 (서울 도보 네트워크)</small><input type="text" id="skey" placeholder="서울 밖이면 비워 둠" autocomplete="off"></div>
+  <div class="key"><div class="kh"><label for="smkey">생활안전지도</label><span class="kb" data-k="smkey"></span></div>
+    <small>횡단보도 · 보안등 위치 (전국)</small><input type="text" id="smkey" placeholder="safemap.go.kr 오픈API 인증키" autocomplete="off"></div>
+  <details class="more"><summary>고급 설정</summary>
+    <label for="vdomain">브이월드 키 등록 주소 (필요할 때만)</label><input type="text" id="vdomain" placeholder="예: http://localhost">
+    <label for="ssvc">도보 네트워크 Open API 서비스명</label><input type="text" id="ssvc" placeholder="비우면 후보를 차례로 시도">
+    <label for="scode">도보 네트워크 횡단보도 코드</label><input type="text" id="scode" placeholder="비우면 CRSWK 칸·'횡단' 글자로 찾음">
+    <label for="smlayer">생활안전지도 횡단보도 서비스</label><input type="text" id="smlayer" placeholder="비우면 IF_0097">
+    <label for="smlight">생활안전지도 보안등 서비스</label><input type="text" id="smlight" placeholder="비우면 IF_0102|A2SM_CMMNPOI_SECULIGHT|A2SM_CMMNPOI_07">
+  </details>
+  <button class="go" id="testapi" style="margin-top:6px">연결 시험</button>
+  <div class="info" id="testres"></div>
+</section>
+
+<main>
+  <div class="tabs">
+    <button data-p="pmap" class="on">지도</button>
+    <button data-p="plive">진행</button>
+    <button data-p="res">결과</button>
+    <button data-p="plaw">법규 검토</button>
+  </div>
+  <div class="view">
+    <div class="errcard" id="err" hidden><section role="alert" aria-labelledby="ettl">
+      <span class="bang" aria-hidden="true">!</span><h2 id="ettl">모델을 만들지 못했어요</h2>
+      <dl><dt>무엇이</dt><dd id="ewhat"></dd><dt>왜</dt><dd id="ewhy"></dd><dt>어떻게</dt><dd id="ehow"></dd></dl>
+      <div class="acts" id="eacts"></div>
+      <details class="tech" id="etech"><summary>기술 정보 보기</summary><pre id="etechp"></pre></details>
+    </section></div>
+    <div class="pane on" id="pmap">
+      <div class="empty" id="mapempty">수치지도 zip을 넣으면 도엽 전체 지도가 여기에 나옵니다.<br>지도를 클릭해 모델 가운데를 고르세요.</div>
+      <div id="zoomui" hidden><div><button type="button" id="zin" title="확대">+</button><button type="button" id="zout" title="축소">−</button><button type="button" class="w" id="zfit">전체</button></div><small id="zhint">휠로 확대 · 끌어서 이동 · 누르면 가운데</small></div>
+      <div id="mapwrap" hidden><div id="mapbox"><img id="map" alt="도엽 지도" draggable="false"><img id="tile" alt=""><div id="sq"></div><svg id="siteov" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></svg><div id="drawtip" hidden>꼭짓점을 차례로 누르세요 · 첫 점을 다시 누르면 닫힘 · Esc 취소 · Backspace 한 점 지움</div></div></div>
+    </div>
+    <div class="pane" id="plive"></div>
+    <div class="pane" id="pplan"><div class="empty" id="planempty">모델을 만들면 평면 미리보기가 나옵니다.</div><div id="planvw" hidden role="tablist" aria-label="평면 그림 고르기"></div><img id="plan" hidden alt="평면 미리보기"></div>
+    <div class="pane" id="p3d"><div class="empty" id="threeempty">모델을 만들면 3D로 돌려 볼 수 있습니다.</div><div id="three" style="position:absolute;inset:0"></div>
+      <div class="legend" id="legend" hidden>드래그 회전 · 오른쪽 드래그 이동 · 휠 확대</div>
+      <div class="treetg" id="treetg" hidden><button type="button" id="tgtree">나무 보이기</button></div></div>
+    <div class="pane" id="plaw" style="overflow:auto;padding:24px 28px"><div class="empty" id="lawempty">왼쪽 '대지 옵션 · 법규 검토'를 펼쳐 주소를 넣고 '법규 검토'를 누르세요.</div><div id="lawbody"></div></div>
+    <pre class="pane" id="plog"></pre>
+    <div id="rsub" hidden role="tablist" aria-label="결과 보기"></div>
+    <div id="recent" hidden></div>
+  </div>
+</main>
+</div>
+
+
+<div id="prep" role="dialog" aria-label="대지 파일 정리">
+  <div class="pp-head">
+    <h3>대지 파일 정리</h3>
+    <p class="info" id="pphow"></p>
+    <button class="ghost" id="ppclose" type="button">닫기</button>
+    <button class="go" style="width:auto" id="ppsave" type="button">표준 파일로 저장하고 쓰기</button>
+  </div>
+  <div class="pp-body">
+    <div class="pp-list" id="pplist"></div>
+    <div class="pp-view">
+      <svg id="ppsvg"><defs><pattern id="pphatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#f1f1f1"/><line x1="0" y1="0" x2="0" y2="6" stroke="#9a9a9a" stroke-width="1.2"/></pattern></defs><g id="ppg"></g></svg>
+      <div class="pp-note" id="ppnote">레이어마다 역할을 고르면 그림이 바로 바뀝니다. 파랑 굵은 선이 대지 경계, 파랑 면이 레벨판, 검정이 계획 건물입니다. 고른 역할은 기억해 두었다가 다음 도면에도 씁니다.</div>
+      <div class="pp-legend"><span><i style="border-color:#1d4ed8;border-width:2px"></i>경계</span><span><i style="background:rgba(29,78,216,.25);border-color:#1d4ed8"></i>레벨판</span><span><i style="background:#1d4ed8;border-radius:50%;width:9px;height:9px"></i>레벨점</span><span><i style="border-top:1px solid #6f8fe0"></i>계획등고선</span><span><i style="background:repeating-linear-gradient(45deg,#f1f1f1 0 3px,#9a9a9a 3px 4px);border-color:#555"></i>원지형유지</span><span><i style="background:#2b2b2b"></i>건물</span><span><i style="border-top:2px solid #7a7a7a"></i>도로</span><span><i style="border-top:1px solid #d0d0d0"></i>무시</span></div>
+    </div>
+  </div>
+</div>
+<script type="importmap">{"imports":{"three":"./vendor/three.module.min.js","three/addons/":"./vendor/addons/"}}</script>
+<script type="module">
+const $=id=>document.getElementById(id);
+let src=null, center=null, names={}, nLog=0, nEv=0, timer=null;
+import {createLive} from './live.js';
+const live=createLive($('plive'));
+
+// 탭
+// v2.0: 위 탭은 지도 · 진행 · 결과 · 법규 검토. 결과 탭 안에서 평면 · 경사 · 절성토 · 3D · 기록을 고른다
+const RES=['pplan','p3d','plog']; let lastRes='pplan', resImg='preview_plan.png';
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>show(b.dataset.p));
+function show(p){if(p==='res') p=lastRes; if(RES.includes(p)) lastRes=p;
+  document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x.dataset.p===p||(x.dataset.p==='res'&&RES.includes(p))));
+  document.querySelectorAll('.pane').forEach(x=>x.classList.toggle('on',x.id===p));
+  $('rsub').hidden=!RES.includes(p); $('recent').hidden=!(RES.includes(p)&&p!=='plog'&&recentItems.length);
+  $('zoomui').hidden=!(p==='pmap'&&src); rsubSync(); if(p==='p3d') resize3d();}
+let RSUB=[['평면','pplan','preview_plan.png'],['3D','p3d'],['기록','plog']], recentItems=[];
+function rsubRender(an){
+  RSUB=[['평면','pplan','preview_plan.png']];
+  if(an&&an.files){ if(an.files.includes('분석_경사.png')) RSUB.push(['경사 분석','pplan','분석_경사.png']);
+    if(an.files.includes('분석_절성토.png')) RSUB.push(['절토·성토','pplan','분석_절성토.png']); }
+  RSUB.push(['3D','p3d'],['기록','plog']);
+  $('rsub').innerHTML=RSUB.map((r,i)=>`<button type="button" role="tab" data-i="${i}">${r[0]}</button>`).join(''); rsubSync();}
+function rsubSync(){const p=document.querySelector('.pane.on')?.id;
+  $('rsub').querySelectorAll('button').forEach(b=>{const r=RSUB[+b.dataset.i]; const on=r[1]===p&&(r[1]!=='pplan'||r[2]===resImg); b.classList.toggle('on',on); b.setAttribute('aria-selected',on);});}
+$('rsub').addEventListener('click',e=>{const b=e.target.closest('button'); if(!b) return; const r=RSUB[+b.dataset.i];
+  if(r[1]==='pplan'&&r[2]){resImg=r[2]; if(!$('plan').hidden||resultReady){$('plan').src='/result/'+encodeURIComponent(r[2])+'?t='+Date.now(); $('plan').alt=r[0];}}
+  show(r[1]);});
+let resultReady=false;
+
+// 1. 파일 넣기 (v2.0): 도엽 zip 과 대지 도면(DXF 등)을 한 칸에 함께. 순서 상관없음, 옆 도엽은 더해서 이어 붙임
+const drop=$('drop');
+drop.onclick=()=>$('file').click();
+$('file').onchange=e=>{const fs=[...e.target.files]; e.target.value=''; fs.length&&addFiles(fs);};
+drop.ondragover=e=>{e.preventDefault();drop.classList.add('on')};
+drop.ondragleave=()=>drop.classList.remove('on');
+drop.ondrop=e=>{e.preventDefault();drop.classList.remove('on');e.dataTransfer.files.length&&addFiles([...e.dataTransfer.files])};
+let pendingSite=null, loading=[];
+const isSheet=f=>/\.zip$/i.test(f.name), isSiteF=f=>/\.(dxf|geojson|json|shp)$/i.test(f.name);
+async function addFiles(files){
+  const zips=files.filter(isSheet), sites=files.filter(isSiteF), other=files.filter(f=>!isSheet(f)&&!isSiteF(f));
+  $('srcinfo').innerHTML=other.length?`<span style="color:var(--err)">${esc(other.map(f=>f.name).join(', '))}: 수치지도 zip 이나 대지 도면(DXF·GeoJSON)이 아니라서 넣지 않았어요.</span>`:'';
+  if(sites.length) pendingSite=sites[sites.length-1];
+  if(zips.length){ await upload(zips, !!src); }
+  renderList();
+  if(pendingSite&&src){const f=pendingSite; pendingSite=null; await siteUpload(f);}
+  else if(pendingSite&&!zips.length) renderList();
+}
+async function upload(files, add){
+  const batch='b'+Date.now()+Math.random().toString(36).slice(2,8);
+  let r,j; loading=files.map(f=>f.name); renderList();
+  for(let i=0;i<files.length;i++){
+    const f=files[i];
+    $('srcinfo').textContent=files.length>1?`도엽 ${i+1}/${files.length} 올리는 중…${i+1===files.length?' · 이어 붙이는 중':''}`:`${f.name} 여는 중…`;
+    const h={'X-Filename':encodeURIComponent(f.name),'X-Batch':batch,'X-Count':String(files.length)}; if(add&&src) h['X-Add']=encodeURIComponent(src.id);
+    try{r=await fetch('/upload',{method:'POST',headers:h,body:f}); j=await r.json();}
+    catch(err){loading=[]; $('srcinfo').innerHTML=`<span style="color:var(--err)">${esc(f.name)}: 프로그램에 닿지 못했어요. 검은 창이 켜져 있는지 확인해 주세요.</span>`; renderList(); return;}
+    if(!r.ok){loading=[]; $('srcinfo').innerHTML=`<span style="color:var(--err)">${esc(f.name)}: ${esc(j.error)}</span>`; renderList(); return;}
+  }
+  loading=[]; const keep=site; src=j; names={}; lawRing=null;
+  $('names').innerHTML=j.names.map(n=>{names[n.name]=n.xy;return `<option value="${esc(n.name)}">`}).join('');
+  $('srcinfo').textContent=`${j.sheets>1?`도엽 ${j.sheets}장 이어 붙임 · 전체 `:'도엽 '}${j.size[0]}×${j.size[1]}m · 이름 있는 곳 ${j.names.length}개`;
+  $('place').disabled=false; $('go').disabled=false; window.markLoaded&&window.markLoaded();
+  resetZoom(); $('map').src='/overview.png?id='+j.id; $('mapwrap').hidden=false; $('mapempty').hidden=true;
+  center=[(j.sheet[0]+j.sheet[2])/2,(j.sheet[1]+j.sheet[3])/2];
+  $('map').onload=()=>{drawSq();drawSite();}; show('pmap');
+  // 옆 도엽을 더했으면 이미 넣은 대지를 새 도엽 기준으로 다시 맞춘다
+  if(keep&&(keep.kind==='file'||keep.kind==='draw')){
+    const r2=await fetch('/site',{method:'POST',body:JSON.stringify({source:src.id,path:keep.kind==='file'?keep.path:null,ring:keep.kind==='draw'?keep.ring:null})});
+    const j2=await r2.json(); if(r2.ok) setSite({...keep,...j2}); else setSite(null,false);
+  } else setSite(keep&&keep.kind==='addr'?keep:null,false);
+  renderList();
+}
+function renderList(){
+  const L=[];
+  if(src) for(const f of (src.files||[{name:src.file}]))
+    L.push(`<li><span class="tag">도엽</span><span class="nm"><b>${esc(f.name)}</b><small>${f.sheet_no?'도엽 '+f.sheet_no:'수치지도'}</small></span><span class="okc">✓</span></li>`);
+  for(const n of loading) L.push(`<li><span class="tag">도엽</span><span class="nm"><b>${esc(n)}</b><small>읽는 중…</small></span><span class="spin"></span></li>`);
+  if(pendingSite) L.push(`<li><span class="tag s">대지</span><span class="nm"><b>${esc(pendingSite.name)}</b><small>${src?'읽는 중…':'수치지도 zip 을 읽은 뒤 바로 맞춰요'}</small></span>${src?'<span class="spin"></span>':''}</li>`);
+  if(site){const how={file:'경계 파일',draw:'지도에 그린 대지',addr:'주소 필지'}[site.kind];
+    const lv=site.levels?` · 레벨 ${site.levels}개`:'';
+    L.push(`<li><span class="tag s">대지</span><span class="nm"><b>${esc(site.label||how)}</b><small>${how} · ${Math.round(site.area).toLocaleString()}㎡${lv}</small></span>`+
+      (site.dxf?`<button type="button" class="lk2" data-prep="${esc(site.path)}">${site.standard?'레이어 다시':'레이어 정리'}</button>`:'<span class="okc">✓</span>')+`</li>`);}
+  $('flist').innerHTML=L.join('');
+  $('s1chg').hidden=!src;
+  // 대지 안내: 도엽 밖이면 옆 도엽 넣기 버튼
+  let n='';
+  if(site&&site.in_sheet===false){
+    const need=site.need&&site.need.length?site.need.join(', '):'';
+    n=`<div class="snote">대지${site.out_pct?'의 '+site.out_pct+'%':' 일부'}가 넣은 도엽 밖${site.out_dirs&&site.out_dirs.length?'('+site.out_dirs.join('·')+'쪽)':''}에 있어요. 지금은 도엽 안 부분까지만 만들어요.<br><button type="button" id="addnb">옆 도엽${need?' '+esc(need):''} 넣기</button></div>`;
+  } else if(site&&src) n=`<div class="snote b">대지가 넣은 도엽 안에 모두 들어 있어요. 범위를 대지에 맞췄어요.</div>`;
+  if(site&&site.fit) n+=`<div class="info">${esc(site.fit)}</div>`;
+  $('sitenote').innerHTML=n;
+  const nb=$('addnb'); if(nb) nb.onclick=()=>$('file').click();
+}
+$('s1chg').onclick=()=>{src=null; setSite(null,false); pendingSite=null; $('go').disabled=true; $('place').disabled=true; $('srcinfo').textContent='';
+  $('mapwrap').hidden=true; $('mapempty').hidden=false; $('zoomui').hidden=true; $('s1').classList.remove('done'); renderList(); rangeView();};
+
+// 인증키는 이 PC 브라우저에만 기억
+['vkey','vdomain','afile','dkey','saddr','lfile','rfile','hddir','demfile','skey','smkey','ssvc','smlayer','smlight','scode'].forEach(k=>{try{const v=localStorage.getItem('contour_'+k); if(v) $(k).value=v;}catch(e){}
+  $(k).addEventListener('change',()=>{try{localStorage.setItem('contour_'+k,$(k).value.trim());}catch(e){}});});
+$('street').addEventListener('change',()=>{$('aerialbox').hidden=!$('street').checked;});
+$('lights').addEventListener('change',()=>{$('lightbox').hidden=!$('lights').checked;});
+$('roadx').addEventListener('change',()=>{$('roadxbox').hidden=!$('roadx').checked;});
+// 브이월드 키는 두 칸이 같은 값
+$('vkey2').value=$('vkey').value;
+$('vkey').addEventListener('input',()=>{$('vkey2').value=$('vkey').value;});
+$('vkey2').addEventListener('input',()=>{$('vkey').value=$('vkey2').value; $('vkey').dispatchEvent(new Event('change'));});
+$('testapi').onclick=async()=>{
+  if(!src){$('testres').textContent='먼저 수치지도 zip을 넣어 주세요.';return;}
+  $('testres').textContent='시험 중… (10~30초)';
+  const r=await fetch('/testapi',{method:'POST',body:JSON.stringify({source:src.id, xy:center, w:+$('w').value, h:+$('h').value,
+    vworld_key:$('vkey').value.trim(), data_key:$('dkey').value.trim(), vworld_domain:$('vdomain').value.trim(),
+    seoul_key:$('skey').value.trim(), safemap_key:$('smkey').value.trim(), seoul_service:$('ssvc').value.trim(), safemap_layer:$('smlayer').value.trim(), safemap_light_layer:$('smlight').value.trim(), seoul_code:$('scode').value.trim()})});
+  const j=await r.json();
+  if(!r.ok){$('testres').innerHTML=`<span style="color:var(--err)">${j.error}</span>`;return;}
+  $('testres').innerHTML=j.results.map(x=>`<div style="margin:4px 0"><span class="kb${x.ok?' ok':''}">${x.ok?'연결됨':'실패'}</span> <b>${x.name}</b>: ${String(x.msg).replace(/[<>&]/g,'')}</div>`).join('');
+};
+
+// 5. 대지 법규 검토
+let site=null;
+const esc=t=>String(t??'').replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+$('lawbtn').onclick=async()=>{
+  const addr=$('saddr').value.trim(); if(!addr){$('lawres').textContent='주소를 넣어 주세요.';return;}
+  $('lawres').textContent='토지이용계획 받는 중… (5~20초)';
+  const r=await fetch('/landlaw',{method:'POST',body:JSON.stringify({address:addr, source:src&&src.id,
+    vworld_key:($('vkey').value||$('vkey2').value).trim(), vworld_domain:$('vdomain').value.trim()})});
+  const j=await r.json();
+  if(!r.ok){$('lawres').innerHTML=`<span style="color:var(--err)">${esc(j.error)}</span>`;return;}
+  const v=j.review; lawRing=j.rings||[j.ring];
+  if(!site||site.kind==='addr') setSite({kind:'addr',rings:lawRing,xy:j.xy,area:j.area,bounds:j.bounds,in_sheet:j.in_sheet,label:v.address},false);
+  $('lawres').innerHTML=`<b>${esc(v.address)}</b><br>${esc(v.zone||'용도지역 미상')}${v.bcr?` · 건폐율 ${v.bcr}% · 용적률 ${v.far}%`:''} · 확인할 것 ${v.checks.length}가지`+
+    (j.in_sheet===false?`<br><span style="color:var(--err)">넣은 도엽 밖의 대지입니다. 그 도엽 zip도 함께 넣어 주세요.</span>`:'');
+  $('lawempty').hidden=true;
+  $('lawbody').innerHTML=`<h2 style="margin:0 0 4px">${esc(v.address)}</h2><div style="color:var(--sub);margin-bottom:14px">PNU ${esc(v.pnu)} · ${esc(v.jibun)}</div>
+   <table class="lawt"><tr><th>항목</th><th>내용</th><th>근거</th></tr>${v.rows.map(r=>`<tr><td>${esc(r[0])}</td><td><b>${esc(r[1])}</b></td><td>${esc(r[2])}</td></tr>`).join('')}</table>
+   <h3>토지이용계획</h3><table class="lawt"><tr><th>지역·지구·구역</th><th>저촉</th><th>메모</th></tr>${v.land_use.map(u=>`<tr><td>${esc(u.name)}</td><td>${esc(u.conflict)}</td><td>${esc(u.note)}</td></tr>`).join('')}</table>
+   ${v.checks.length?`<h3>확인할 것</h3><ul>${v.checks.map(c=>`<li>${esc(c)}</li>`).join('')}</ul>`:''}
+   <p style="color:var(--sub);font-size:12px">${esc(v.note)}</p>`;
+  drawSite(); show('plaw');
+};
+// 대지 경계: 파일 · 지도에 그리기 · 주소(법규 검토) 가운데 마지막에 넣은 것
+let lawRing=null, drawing=null;
+function setSite(v,go=true){
+  site=v; drawing=null; $('mapbox').classList.remove('draw'); $('drawtip').hidden=true; $('sitedrawbtn').textContent='지도에 그리기';
+  $('siteclr').hidden=!v; $('siteres').textContent='';
+  if(!v){$('sitesum').textContent='선택'; drawSite(); renderList(); rangeView(); return;}
+  $('sitesum').textContent=`${Math.round(v.area).toLocaleString()}㎡`+($('siteclear').checked?' · 비움':'');
+  if(v.standard) $('siteres').innerHTML=`<span style="color:var(--sub)">표준 대지 파일${v.saved?' · '+esc(v.saved):''}</span>`;
+  // 도엽 밖으로 나가는 대지도 범위는 대지 쪽으로 옮긴다 (범위는 도엽 안으로 밀려 들어간다)
+  if(src&&v.xy){center=v.xy; $('place').value='';
+    // 대지가 범위보다 크면 범위를 대지 + 여유 50m 로 키운다
+    if(v.bounds){const need=[v.bounds[2]-v.bounds[0]+100, v.bounds[3]-v.bounds[1]+100];
+      if(need[0]>+$('w').value) $('w').value=Math.ceil(need[0]/50)*50;
+      if(need[1]>+$('h').value) $('h').value=Math.ceil(need[1]/50)*50; texts();}
+    drawSq();}
+  rangeEdit=false; centerMoved=false; drawSite(); renderList(); rangeView(); if(go) show('pmap');
+}
+$('siteclear').addEventListener('change',()=>{if(site) $('sitesum').textContent=`${Math.round(site.area).toLocaleString()}㎡`+($('siteclear').checked?' · 비움':'');});
+$('siteclr').onclick=()=>setSite(null);
+$('sitefilebtn').onclick=()=>$('sitefile').click();
+// 대지 파일 읽기: 어떤 실패든 '읽는 중'에 멈춰 있지 않고 이유와 해결 방법을 띄운다
+function siteErr(msg){$('siteres').innerHTML=`<span style="color:var(--err)">${esc(msg)}</span>`;}
+$('sitefile').onchange=e=>{const f=e.target.files[0]; e.target.value=''; if(f) addFiles([f]);};
+async function siteUpload(f){
+  pendingSite=f; renderList(); $('siteres').textContent='';
+  const ctl=new AbortController(), tm=setTimeout(()=>ctl.abort(),180000);
+  let r, txt='';
+  const done=()=>{pendingSite=null; renderList();};
+  try{
+    r=await fetch('/siteupload',{method:'POST',headers:{'X-Filename':encodeURIComponent(f.name),'X-Source':encodeURIComponent(src.id)},body:f,signal:ctl.signal});
+    txt=await r.text();
+  }catch(err){
+    clearTimeout(tm); done();
+    siteErr(err.name==='AbortError'?`${f.name}: 3분이 지나도 읽기가 끝나지 않아 멈췄습니다. 도면이 아주 크면 대지 경계·레벨 레이어만 남겨 DXF로 다시 저장해 넣어 주세요.`
+      :/Failed to fetch|NetworkError|Load failed/i.test(err.message)?`${f.name}: 프로그램에 닿지 못했습니다. 검은 창(프로그램)이 켜져 있는지 확인하고 다시 넣어 주세요. (${err.message})`
+      :`${f.name}: 화면이 파일을 보내기 전에 오류가 났습니다(프로그램은 정상). 이 화면 그림을 보내 주시면 고치겠습니다. (${err.message})`); return;}
+  clearTimeout(tm); done();
+  let j; try{j=JSON.parse(txt);}catch(_){siteErr(`${f.name}: 읽는 중에 문제가 생겼습니다. 진행 기록이나 검은 창의 내용을 알려 주세요. (${txt.slice(0,160)})`);return;}
+  if(!r.ok){siteErr(j.error||'경계 파일을 읽지 못했습니다.');
+    if(j.prep&&j.path) $('siteres').insertAdjacentHTML('beforeend',`<br><button class="ghost" type="button" data-prep="${esc(j.path)}" style="margin-top:6px;padding:6px 12px;font-size:12px">레이어를 직접 골라 정리하기</button>`);
+    return;}
+  try{setSite({...j,kind:'file',label:f.name});}catch(err){siteErr(`${f.name}: 읽었지만 화면에 그리지 못했습니다. (${err.message})`);}
+}
+// ---- 대지 파일 정리 화면: 레이어마다 역할을 고르고 표준 대지 파일(SITE_ 레이어)로 저장
+const PP={roles:['경계','레벨판','레벨점','계획등고선','원지형유지','건물','도로','무시'],an:null,path:null,mem:{}};
+try{PP.mem=JSON.parse(localStorage.getItem('contourSiteRoles')||'{}')}catch(_){PP.mem={}}
+$('s1').addEventListener('click',e=>{const b=e.target.closest('[data-prep]'); if(b){e.stopPropagation(); openPrep(b.dataset.prep);}});
+$('ppclose').onclick=()=>$('prep').classList.remove('on');
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('prep').classList.contains('on')) $('prep').classList.remove('on');});
+async function openPrep(path){
+  $('siteres').insertAdjacentHTML('beforeend','<span id="ppwait"><br>레이어 읽는 중…</span>');
+  let r,j; try{r=await fetch('/siteprep',{method:'POST',body:JSON.stringify({source:src.id,path})}); j=JSON.parse(await r.text());}
+  catch(err){$('ppwait')?.remove(); siteErr(`레이어를 읽지 못했습니다. 검은 창(프로그램)이 켜져 있는지 확인해 주세요. (${err.message})`); return;}
+  $('ppwait')?.remove();
+  if(!r.ok){siteErr(j.error||'레이어를 읽지 못했습니다.'); return;}
+  PP.an=j; PP.path=path;
+  for(const L of j.layers){L.guess=L.role; if(PP.mem[L.name]&&PP.roles.includes(PP.mem[L.name])){L.role=PP.mem[L.name]; L.mem=L.role!==L.guess;}}
+  $('pphow').textContent=`${j.file} · ${j.how}`+(j.standard?' · 이미 표준 대지 파일입니다':'');
+  ppList(); ppDraw(); ppHL(null); $('prep').classList.add('on');
+}
+function ppSummary(L){const a=[];
+  if(L.closed) a.push(`닫힌 선 ${L.closed}${L.closed_z?' (높이 '+L.closed_z+')':''}`);
+  if(L.open) a.push(`선 ${L.open}${L.open_z?' (높이 '+L.open_z+')':''}`);
+  if(L.levels) a.push(`레벨 숫자 ${L.levels}`+(L.values&&L.values.length?` (${L.values.slice(0,4).join(', ')}${L.values.length>4?' …':''})`:''));
+  if(L.map_spots) a.push(`수치지도 표고점과 같은 숫자 ${L.map_spots}`);
+  if(L.area>=1) a.push(`가장 큰 면 ${Math.round(L.area).toLocaleString()}㎡`);
+  return a.join(' · ');}
+// 수치지도 레이어 코드(1.0: A0013118, 2.0: N3A_B0010000) → 한글 이름 (앞 4자리: 분류+번호)
+const MAPCAT={A:'교통',B:'건물',C:'시설',D:'식생',E:'수계',F:'지형',G:'경계',H:'주기'};
+const MAPCODE={A001:'도로경계',A002:'도로중심선',A003:'보도',A004:'횡단보도',A005:'안전지대',A006:'육교',A007:'교량',A008:'교차로',A009:'입체교차부',A010:'인터체인지',A011:'터널',A012:'터널입구',A013:'정거장',A014:'철도',A015:'철도경계',A016:'철도중심선',
+  B001:'건물',B002:'담장',F001:'등고선',F002:'표고점',F003:'절토·성토',F004:'옹벽',E001:'하천경계',E002:'하천중심선',G001:'행정경계',H001:'지명',H004:'주기'};
+function mapCode(n){let m=String(n).match(/^N3[APLC]_([A-H])(\d{3})\d{4}$/)||String(n).match(/^([A-H])(\d{3})\d{4}$/);
+  if(!m) return null; const c=m[1]+m[2]; return (MAPCODE[c]||MAPCAT[m[1]]+' '+m[2])+' · 수치지도';}
+function ppList(){
+  const used=PP.an.layers.filter(L=>L.role!=='무시'), rest=PP.an.layers.filter(L=>L.role==='무시');
+  const restMap=rest.filter(L=>mapCode(L.name)), restOther=rest.filter(L=>!mapCode(L.name));
+  const row=L=>{const kn=mapCode(L.name); return `<div class="pp-row r${PP.roles.indexOf(L.role)}" data-l="${esc(L.name)}"><div><b>${esc(L.name)}${kn?`<span class="kn">${esc(kn)}</span>`:''}</b>${L.mem?'<em>기억한 역할</em>':''}<small>${esc(ppSummary(L))}</small></div>`+
+    `<select>${PP.roles.map(r=>`<option${r===L.role?' selected':''}>${r}</option>`).join('')}</select></div>`;};
+  $('pplist').innerHTML=`<div class="pp-sec">쓰는 레이어 ${used.length}</div>`+used.map(row).join('')+
+    (restOther.length?`<div class="pp-sec">무시하는 레이어 ${restOther.length}</div>`+restOther.map(row).join(''):'')+
+    (restMap.length?`<details class="ppmap"><summary>수치지도 바탕 레이어 ${restMap.length}개 (건물·도로·등고선 등, 보통 무시)</summary>${restMap.map(row).join('')}</details>`:'');
+}
+$('pplist').addEventListener('change',e=>{const row=e.target.closest('.pp-row'); if(!row) return;
+  const L=PP.an.layers.find(x=>x.name===row.dataset.l); L.role=e.target.value; L.mem=false;
+  row.className=`pp-row r${PP.roles.indexOf(L.role)}`; const g=PP.g[L.name]; if(g) g.setAttribute('class',`r${PP.roles.indexOf(L.role)}`);});
+$('pplist').addEventListener('mouseover',e=>{const row=e.target.closest('.pp-row'); ppHL(row?row.dataset.l:null);});
+$('pplist').addEventListener('mouseleave',()=>ppHL(null));
+function ppHL(name){for(const k in PP.g) PP.g[k].classList.toggle('hl',k===name);}
+function ppDraw(){
+  const an=PP.an, G=$('ppg'); G.innerHTML=''; PP.g={};
+  // 보기 범위: 경계 역할 레이어(없으면 쓰는 레이어) 둘레 + 여유
+  const pick=r=>an.geoms.filter(g=>(an.layers.find(L=>L.name===g.layer)||{}).role===r);
+  let base=pick('경계'); if(!base.length) base=an.geoms.filter(g=>(an.layers.find(L=>L.name===g.layer)||{}).role!=='무시'); if(!base.length) base=an.geoms;
+  let x0=1e20,y0=1e20,x1=-1e20,y1=-1e20; for(const g of base) for(const [x,y] of g.xy){x0=Math.min(x0,x);y0=Math.min(y0,y);x1=Math.max(x1,x);y1=Math.max(y1,y);}
+  const m=Math.max(x1-x0,y1-y0)*0.25+20; x0-=m;y0-=m;x1+=m;y1+=m;
+  $('ppsvg').setAttribute('viewBox',`${x0} ${-y1} ${x1-x0} ${y1-y0}`);
+  const rad=Math.max(x1-x0,y1-y0)/260, by={};
+  for(const g of an.geoms) (by[g.layer]=by[g.layer]||[]).push(g);
+  // 큰 면이 먼저, 레벨 점이 나중에 그려지게
+  const order=an.layers.slice().sort((a,b)=>(b.role==='무시')-(a.role==='무시')||b.area-a.area);
+  for(const L of order){const gs=by[L.name]; if(!gs) continue;
+    const g=document.createElementNS('http://www.w3.org/2000/svg','g'); g.setAttribute('class',`r${PP.roles.indexOf(L.role)}`);
+    let d='', o='', c='';
+    for(const q of gs){
+      const inView=q.xy.some(([x,y])=>x>=x0&&x<=x1&&y>=y0&&y<=y1)||q.xy.length>1&&!(Math.max(...q.xy.map(p=>p[0]))<x0||Math.min(...q.xy.map(p=>p[0]))>x1||Math.max(...q.xy.map(p=>p[1]))<y0||Math.min(...q.xy.map(p=>p[1]))>y1);
+      if(!inView) continue;
+      if(q.kind==='level'){c+=`<circle cx="${q.xy[0][0]}" cy="${-q.xy[0][1]}" r="${rad}"><title>${esc(L.name)} · ${q.z}</title></circle>`; continue;}
+      const seg='M'+q.xy.map(([x,y])=>`${x} ${-y}`).join('L');
+      if(q.kind==='closed') d+=seg+'Z'; else o+=seg;}
+    // 닫힌 선은 면으로, 열린 선은 선으로만 (열린 선을 칠하면 엉뚱한 삼각형이 생긴다)
+    g.innerHTML=(d?`<path d="${d}" fill-rule="evenodd"><title>${esc(L.name)}</title></path>`:'')+
+      (o?`<path d="${o}" style="fill:none"><title>${esc(L.name)}</title></path>`:'')+c;
+    G.appendChild(g); PP.g[L.name]=g;}
+}
+$('ppsave').onclick=async()=>{
+  const roles={}; for(const L of PP.an.layers) roles[L.name]=L.role;
+  if(!Object.values(roles).includes('경계')){$('ppnote').innerHTML='<b style="color:var(--ink)">대지 경계가 그려진 레이어 하나를 \'경계\'로 골라 주세요.</b>'; return;}
+  $('ppsave').disabled=true; $('ppsave').textContent='저장하는 중…';
+  let r,j; try{r=await fetch('/sitesave',{method:'POST',body:JSON.stringify({source:src.id,path:PP.path,roles})}); j=JSON.parse(await r.text());}
+  catch(err){j={error:`저장하지 못했습니다. 검은 창(프로그램)이 켜져 있는지 확인해 주세요. (${err.message})`}; r={ok:false};}
+  $('ppsave').disabled=false; $('ppsave').textContent='표준 파일로 저장하고 쓰기';
+  if(!r.ok){$('ppnote').innerHTML=`<b style="color:var(--ink)">${esc(j.error||'저장하지 못했습니다.')}</b>`; return;}
+  for(const L of PP.an.layers){ if(L.role!==L.guess||PP.mem[L.name]) PP.mem[L.name]=L.role; }
+  try{localStorage.setItem('contourSiteRoles',JSON.stringify(PP.mem))}catch(_){}
+  $('prep').classList.remove('on');
+  const c=j.info.counts;
+  setSite({...j,kind:'file',label:j.saved.split(/[\\/]/).pop()});
+  $('siteres').insertAdjacentHTML('beforeend',`<br><span style="color:var(--sub)">레벨판 ${c['레벨판']} · 레벨점 ${c['레벨점']} · 계획 등고선 ${c['계획등고선']} · 원지형 유지 ${c['원지형유지']} · 건물 ${c['건물']} · 도로 ${c['도로']}`+
+    (j.notes&&j.notes.length>1?'<br>'+j.notes.slice(0,-1).map(esc).join('<br>'):'')+'</span>');
+};
+$('sitedrawbtn').onclick=()=>{
+  if(!src){$('siteres').textContent='먼저 01번 칸에 수치지도 zip을 넣어 주세요.';return;}
+  if(drawing){finishDraw();return;}
+  drawing=[]; $('mapbox').classList.add('draw'); $('drawtip').hidden=false; $('sitedrawbtn').textContent='그리기 끝내기';
+  $('siteres').textContent='지도에서 대지 꼭짓점을 차례로 누르세요.'; show('pmap'); drawSite();
+};
+async function finishDraw(){
+  const pts=drawing||[];
+  if(pts.length<3){drawing=null; $('mapbox').classList.remove('draw'); $('drawtip').hidden=true; $('sitedrawbtn').textContent='지도에 그리기';
+    $('siteres').textContent=pts.length?'꼭짓점이 3개 이상이어야 합니다.':''; drawSite(); return;}
+  const r=await fetch('/site',{method:'POST',body:JSON.stringify({source:src.id, ring:pts})}); const j=await r.json();
+  if(!r.ok){$('siteres').innerHTML=`<span style="color:var(--err)">${esc(j.error)}</span>`;return;}
+  setSite({...j,kind:'draw',ring:pts});
+}
+window.addEventListener('keydown',e=>{if(!drawing) return;
+  if(e.key==='Escape'){drawing=null; $('mapbox').classList.remove('draw'); $('drawtip').hidden=true; $('sitedrawbtn').textContent='지도에 그리기'; $('siteres').textContent=''; drawSite();}
+  else if(e.key==='Backspace'&&!/INPUT|TEXTAREA/.test(document.activeElement.tagName)){e.preventDefault(); drawing.pop(); drawSite();}
+  else if(e.key==='Enter') finishDraw();});
+function drawSite(){const ov=$('siteov'); if(!ov) return; ov.innerHTML=''; if(!src) return;
+  const s=src.sheet, im=$('map'), W=s[2]-s[0], H=s[3]-s[1], sx=im.clientWidth/W, sy=im.clientHeight/H;
+  const P=p=>`${(p[0]-s[0])*sx},${(s[3]-p[1])*sy}`;
+  let h='';
+  const sw=2/(window.ZMK||1);
+  if(site&&site.rings) h+=site.rings.map(r=>`<polygon points="${r.map(P).join(' ')}" fill="rgba(29,78,216,.30)" stroke="#111" stroke-width="${sw}"/>`).join('');
+  if(drawing&&drawing.length){
+    h+=`<polyline points="${drawing.map(P).join(' ')}" fill="rgba(29,78,216,.18)" stroke="#111" stroke-width="${sw}" stroke-dasharray="5 3"/>`;
+    h+=drawing.map((p,i)=>{const [x,y]=P(p).split(',');return `<circle cx="${x}" cy="${y}" r="${i?3.5:5.5}" fill="${i?'#111':'#1d4ed8'}" stroke="#fff" stroke-width="1.5"/>`}).join('');}
+  ov.innerHTML=h;}
+
+// 2. 범위
+$('place').oninput=()=>{const xy=names[$('place').value]; if(xy){center=xy;drawSq();}};
+['w','h','scale','interval'].forEach(k=>$(k).oninput=()=>{drawSq();texts();});
+function clampBox(){const s=src.sheet,w=+$('w').value||500,h=+$('h').value||500;
+  let x0=Math.min(Math.max(center[0]-w/2,s[0]),s[2]-w), y0=Math.min(Math.max(center[1]-h/2,s[1]),s[3]-h);
+  return [x0,y0,x0+w,y0+h];}
+function drawSq(){if(!src) return; const s=src.sheet, im=$('map'), b=clampBox(), W=s[2]-s[0], H=s[3]-s[1];
+  const sx=im.clientWidth/W, sy=im.clientHeight/H, q=$('sq');
+  Object.assign(q.style,{display:'block',left:(b[0]-s[0])*sx+'px',top:(s[3]-b[3])*sy+'px',width:(b[2]-b[0])*sx+'px',height:(b[3]-b[1])*sy+'px'});}
+$('map').ondblclick=()=>{if(drawing&&drawing.length>=3) finishDraw();};
+$('map').onclick=e=>{if(ZM.dragged){ZM.dragged=false;return;} const s=src.sheet, im=$('map'), r=im.getBoundingClientRect();
+  if(drawing){
+    const p=[s[0]+(e.clientX-r.left)/r.width*(s[2]-s[0]), s[3]-(e.clientY-r.top)/r.height*(s[3]-s[1])];
+    if(e.detail>1) return;                         // 두 번 누르기의 둘째 누름은 점으로 넣지 않는다
+    if(drawing.length>=3){const q=drawing[0], px=r.width/(s[2]-s[0]);
+      if(Math.hypot((p[0]-q[0])*px,(p[1]-q[1])*px)<10){finishDraw();return;}}
+    drawing.push([Math.round(p[0]*100)/100,Math.round(p[1]*100)/100]); drawSite(); return;}
+  center=[s[0]+(e.clientX-r.left)/r.width*(s[2]-s[0]), s[3]-(e.clientY-r.top)/r.height*(s[3]-s[1])];
+  $('place').value=''; centerMoved=true; drawSq(); rangeView();};
+window.addEventListener('resize',()=>{resetZoom();drawSq();drawSite();resize3d();});
+// 02 범위: 대지가 있으면 '대지에 맞춤' 한 줄로 접고, '바꾸기'를 눌렀을 때만 숫자 칸을 연다
+let rangeEdit=false, centerMoved=false;
+function rangeView(){const w=+$('w').value, h=+$('h').value;
+  $('rsz').textContent=`${w} × ${h} m`;
+  $('rhow').textContent=site&&!centerMoved?'· 대지에 맞춤':site?'· 지도에서 고른 자리':src?'· 지도를 눌러 가운데를 고르세요':'';
+  $('rangeedit').hidden=!!site&&!rangeEdit; $('s2chg').hidden=!site||rangeEdit;}
+$('s2chg').onclick=()=>{rangeEdit=true; rangeView();};
+function texts(){const sc=+$('scale').value||1000, w=+$('w').value, h=+$('h').value, iv=+$('interval').value;
+  $('rangeinfo').textContent=`1:${sc} → ${+(w*1000/sc/10).toFixed(1)} × ${+(h*1000/sc/10).toFixed(1)} cm`; rangeView();
+  $('sheetinfo').textContent=`1:${sc}에서 ${iv}m = 판 두께 ${(iv*1000/sc).toFixed(1)}mm`;}
+
+// 지도 확대 (v2.0): 휠 = 마우스 자리로 확대·축소, 끌기 = 이동, 누르기 = 가운데 고르기. 확대하면 보이는 부분을 선명하게 다시 그린다
+const ZM={k:1,x:0,y:0,drag:null,dragged:false,timer:null,req:0};
+function zApply(){const b=$('mapbox'); b.style.transform=`translate(${ZM.x}px,${ZM.y}px) scale(${ZM.k})`;
+  window.ZMK=ZM.k; $('sq').style.borderWidth=(2/ZM.k)+'px'; drawSite(); $('zhint').textContent=ZM.k>1.01?`${Math.round(ZM.k*100)}% · 끌어서 이동 · 누르면 가운데`:'휠로 확대 · 끌어서 이동 · 누르면 가운데';
+  clearTimeout(ZM.timer); ZM.timer=setTimeout(zTile,280);}
+function zClamp(){const im=$('map'), w=im.clientWidth, h=im.clientHeight;
+  ZM.x=Math.min(0,Math.max(w-w*ZM.k,ZM.x)); ZM.y=Math.min(0,Math.max(h-h*ZM.k,ZM.y));}
+function zoomAt(cx,cy,f){const r=$('mapbox').getBoundingClientRect(), bx=r.left-ZM.x, by=r.top-ZM.y;
+  const lx=(cx-r.left)/ZM.k, ly=(cy-r.top)/ZM.k, k2=Math.min(16,Math.max(1,ZM.k*f));
+  ZM.x=cx-bx-k2*lx; ZM.y=cy-by-k2*ly; ZM.k=k2; zClamp(); zApply();}
+function resetZoom(){ZM.k=1;ZM.x=0;ZM.y=0; $('tile').style.display='none'; zApply();}
+$('mapwrap').addEventListener('wheel',e=>{if(!src) return; e.preventDefault(); zoomAt(e.clientX,e.clientY,Math.exp(-e.deltaY*0.001));},{passive:false});
+$('mapbox').addEventListener('mousedown',e=>{if(e.button!==0||!src) return; ZM.drag={x:e.clientX,y:e.clientY,ox:ZM.x,oy:ZM.y}; ZM.dragged=false;});
+window.addEventListener('mousemove',e=>{const d=ZM.drag; if(!d) return; const dx=e.clientX-d.x, dy=e.clientY-d.y;
+  if(!ZM.dragged&&Math.hypot(dx,dy)<5) return; if(ZM.k<=1.001) return;
+  ZM.dragged=true; $('mapbox').classList.add('grab'); ZM.x=d.ox+dx; ZM.y=d.oy+dy; zClamp(); zApply();});
+window.addEventListener('mouseup',()=>{ZM.drag=null; $('mapbox').classList.remove('grab'); setTimeout(()=>{ZM.dragged=false;},0);});
+$('zin').onclick=()=>{const r=$('mapwrap').getBoundingClientRect(); zoomAt(r.left+r.width/2,r.top+r.height/2,1.6);};
+$('zout').onclick=()=>{const r=$('mapwrap').getBoundingClientRect(); zoomAt(r.left+r.width/2,r.top+r.height/2,1/1.6);};
+$('zfit').onclick=resetZoom;
+async function zTile(){const t=$('tile'); if(!src||ZM.k<1.3){t.style.display='none';return;}
+  const im=$('map'), w=im.clientWidth, h=im.clientHeight, vw=$('mapwrap').getBoundingClientRect(), r=$('mapbox').getBoundingClientRect();
+  // 보이는 부분(지도 좌표 픽셀, 확대 전 기준)
+  const l0=Math.max(0,(vw.left-r.left)/ZM.k), t0=Math.max(0,(vw.top-r.top)/ZM.k), l1=Math.min(w,(vw.right-r.left)/ZM.k), t1=Math.min(h,(vw.bottom-r.top)/ZM.k);
+  if(l1<=l0||t1<=t0) return;
+  const s=src.sheet, sx=(s[2]-s[0])/w, sy=(s[3]-s[1])/h, bb=[s[0]+l0*sx, s[3]-t1*sy, s[0]+l1*sx, s[3]-t0*sy];
+  const px=Math.round((l1-l0)*ZM.k*Math.min(devicePixelRatio||1,2)), my=++ZM.req;
+  const url=`/overview_tile.png?id=${encodeURIComponent(src.id)}&bbox=${bb.map(v=>v.toFixed(1)).join(',')}&px=${px}`;
+  const img=new Image(); img.onload=()=>{if(my!==ZM.req) return; t.src=url; Object.assign(t.style,{display:'block',left:l0+'px',top:t0+'px',width:(l1-l0)+'px',height:(t1-t0)+'px'});}; img.src=url;}
+
+texts();
+// 3. 실행 (v1.5: 왼쪽 칸이 설정 → 만드는 중 → 완성 으로 바뀜, 오류는 무엇이·왜·어떻게)
+const STEPS=['수치지도 읽기','등고선 · 계단판','건물 · 길 · 가로수 배치','경사면 · 건물 터','Rhino · 레이저 도면 쓰기','완료'];
+let stepAt={}, lastBody=null;
+function mode(m){
+  $('setup').hidden=m!=='setup'; $('runp').hidden=m!=='run'; $('donep').hidden=m!=='done';
+  $('footSetup').hidden=m!=='setup'; $('footRun').hidden=m!=='run'; $('footDone').hidden=m!=='done';
+}
+window.mode=mode;
+function collect(){
+  // 결과 폴더 이름: 대지 이름 → 가운데 지명 → 도엽 번호
+  const label=(site&&site.label?String(site.label).replace(/\.[^.]+$/,''):'')||$('place').value||src.label||src.file.replace(/\.zip$/i,'');
+  return {source:src.id, xy:center, w:+$('w').value, h:+$('h').value, scale:+$('scale').value, interval:+$('interval').value,
+    terrain:$('terrain').value, terrain_fit:(document.querySelector('#fitseg button.on')||{}).dataset?.v||'smooth', green:$('green').checked, street_trees:$('street').checked, floor_height:+$('floor').value,
+    tree_hole:+$('hole').value, vworld_key:$('vkey').value||$('vkey2').value, data_key:$('dkey').value, vworld_domain:$('vdomain').value, aerial_file:$('afile').value, lights:$('lights').checked, detail:+$('detail').value, facade_radius:$('fradius').value?+$('fradius').value:null, structures:$('structs').checked, light_file:$('lfile').value, road_detail:$('roadx').checked, road_files:$('rfile').value, hd_dir:$('hddir').value.trim(), dem_files:$('demfile').value.trim()||null, seoul_key:$('skey').value, safemap_key:$('smkey').value, seoul_service:$('ssvc').value, safemap_layer:$('smlayer').value, safemap_light_layer:$('smlight').value, seoul_code:$('scode').value, site_address:(site&&site.kind==='addr'||$('lawbody').innerHTML)?($('saddr').value.trim()||null):null, site_file:site&&site.kind==='file'?site.path:null, site_ring:site&&site.kind==='draw'?site.ring:null, site_clear:!!site&&$('siteclear').checked, site_keep_terrain:!!site&&$('sitekeep').checked, road_thickness:+$('roadt').value, sketchup:$('skp').checked, year:$('year').value||null, out:$('out').value.trim()||null, label};
+}
+async function start(body){
+  hideErr();
+  // 범위가 도엽보다 크면 돌리기 전에 알려 준다
+  const W=src.sheet[2]-src.sheet[0], H=src.sheet[3]-src.sheet[1];
+  if(body.w>W+1||body.h>H+1){
+    const nw=Math.floor(Math.min(body.w,W)/10)*10, nh=Math.floor(Math.min(body.h,H)/10)*10;
+    showErr({what:`고른 범위(${body.w} × ${body.h} m)가 넣은 도엽보다 커요.`,
+      why:`넣은 도엽 전체가 ${Math.round(W)} × ${Math.round(H)} m라서, 나머지에는 지형 자료가 없어요.`,
+      how:'범위를 줄이거나, 옆 도엽 zip을 함께 넣어 주세요.',
+      acts:[[`${nw} × ${nh} m로 줄여서 만들기`,()=>{$('w').value=nw;$('h').value=nh;drawSq();texts();start(collect());},1],
+            ['옆 도엽 넣기',()=>{hideErr();$('file').click();}]]});
+    return;
+  }
+  if(site&&site.bounds&&src&&body.xy){const sb=site.bounds, bx=clampBox();
+    const ix=Math.max(0,Math.min(sb[2],bx[2])-Math.max(sb[0],bx[0])), iy=Math.max(0,Math.min(sb[3],bx[3])-Math.max(sb[1],bx[1]));
+    const frac=ix*iy/Math.max(1,(sb[2]-sb[0])*(sb[3]-sb[1]));
+    if(frac<0.5&&!body._ok){showErr({what:`대지가 모델 범위에 ${frac<0.01?'들어 있지 않아요':'절반도 안 들어가요'}.`,why:'지도를 눌러 범위 가운데를 다른 곳으로 옮긴 것 같아요.',how:'대지에 맞춰 만들거나, 지금 범위 그대로 만들 수 있어요.',
+      acts:[['대지에 맞춰 만들기',()=>{hideErr(); center=site.xy; centerMoved=false; drawSq(); rangeView(); start(collect());},1],['지금 범위로 만들기',()=>{hideErr(); start({...body,_ok:1});}]]}); return;}}
+  const r=await fetch('/run',{method:'POST',body:JSON.stringify(body)}); const j=await r.json();
+  if(!r.ok){showErr(friendly(j.error));return;}
+  lastBody=body; stepAt={}; sub=null; resultReady=false; $('plog').textContent=''; nLog=0; nEv=0; live.reset();
+  $('rsum').textContent=`${body.w} × ${body.h} m · 1:${body.scale} · ${{combo:'계단 + 경사',step:'계단판만',slope:'경사면만'}[body.terrain]} · 디테일 ${body.detail}`;
+  runView(0,'준비 중'); mode('run'); show('plive');
+  timer=setInterval(poll,1000);
+}
+$('go').onclick=()=>start(collect());
+$('stop').onclick=async()=>{$('stop').disabled=true; $('stop').textContent='멈추는 중…'; await fetch('/cancel',{method:'POST',body:'{}'});};
+$('again').onclick=()=>{if(!lastBody&&!src){mode('setup');show('pmap');return;} start(lastBody||collect());};
+$('change').onclick=()=>{mode('setup'); show('pmap');};
+$('openf').onclick=()=>SRV?(location.href='/download'):fetch('/open',{method:'POST',body:'{}'});
+function mmss(t){t=Math.max(0,Math.round(+t||0));const h=Math.floor(t/3600),m=Math.floor(t%3600/60),x=t%60;return h?`${h}시간 ${m}분 ${x}초`:m?`${m}분 ${x}초`:`${x}초`;}
+function mss(t){t=Math.max(0,Math.round(+t||0));return `${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`;}
+function setStatus(kind,html,pct){const s=$('status'); s.className='status '+kind;
+  s.innerHTML=html+(pct!=null?`<div class="bar"><i style="width:${pct}%"></i></div>`:'');}
+// 저장 단계(5) 세부: 파일 종류별 몫 [시작, 끝]. 저장(디스크 쓰기)처럼 오래 걸리는 칸은 예상 시간으로 막대를 채운다
+const SUBW={Rhino:[0,.7],STL:[.7,.9],SketchUp:[.9,.95],'레이저':[.95,1]};
+let sub=null;
+function subFrac(){if(!sub) return 0; const w=SUBW[sub.file]||[0,1]; let f=0;
+  if(sub.est){f=Math.min(.97,(Date.now()-sub.seen)/1000/Math.max(sub.est,1)); if(sub.file==='Rhino') f=.2+.8*f;}
+  else if(sub.n){f=(sub.r+1)/sub.n; if(sub.file==='Rhino') f*=.2;}
+  else if(sub.file==='Rhino') f=.1;
+  return w[0]+(w[1]-w[0])*f;}
+function subText(){if(!sub) return ''; const nm={Rhino:'Rhino 파일',STL:'3D 프린트 STL',SketchUp:'스케치업',레이저:'레이저 판'}[sub.file]||sub.file;
+  let t=`${nm} · ${sub.x}${sub.n?` ${(sub.r+1).toLocaleString()} / ${sub.n.toLocaleString()}`:''}`;
+  if(sub.est){const left=Math.round(sub.est-(Date.now()-sub.seen)/1000); t+=left>2?` · 약 ${left}초 남음`:' · 거의 다 됐어요';}
+  return t;}
+function runView(k,label,el){
+  $('rbig').textContent=k?`${Math.min(k,6)} / 6 단계`:'준비 중';
+  $('rnow').textContent=`${label} · ${mmss(el||0)} 지남`;
+  const inSub=k===5&&sub; $('rsub2').textContent=inSub?subText():'';
+  $('rbar').style.width=Math.max(3,(k-1+(inSub?subFrac():.5))/6*100)+'%';
+  $('rsteps').innerHTML=STEPS.map((n,i)=>{const s=i+1, st=s<k?'done':s===k?'now':'todo';
+    const t=st==='done'&&stepAt[s+1]!=null?mss(stepAt[s+1]-stepAt[s]):st==='now'&&stepAt[s]!=null?mss((el||0)-stepAt[s]):'';
+    return `<li class="${st}"><span class="d">${st==='done'?'✓':''}</span><span>${n}</span><span class="t">${t}</span></li>`;}).join('');
+}
+// 프로그램이 Rhino 파일을 디스크에 쓰는 동안은 물음에 답하지 못하므로, 예상 시간이 있으면 화면이 스스로 센다
+let lastRun=null;
+setInterval(()=>{if(!lastRun||$('runp').hidden||!sub||!sub.est) return; runView(lastRun[0],lastRun[1],lastRun[2]+(Date.now()-lastRun[3])/1000);},500);
+async function poll(){
+  const j=await (await fetch('/status?since='+nLog+'&ev='+nEv)).json();
+  if(j.events){live.push(j.events); nEv=j.ne;
+    for(const ev of j.events) if(ev.t==='sub') sub={...ev,seen:Date.now()}; }
+  if(j.lines&&j.lines.length){$('plog').textContent+=j.lines.join('\n')+'\n'; nLog=j.n; $('plog').scrollTop=1e9;}
+  const all=[...$('plog').textContent.matchAll(/(\d)\/6 ([^\n]*)/g)];
+  all.forEach(m=>{if(stepAt[+m[1]]==null) stepAt[+m[1]]=j.elapsed;});
+  const step=all.pop(), k=step?+step[1]:0;
+  if(!j.done&&j.queue){runView(0,`순서 기다리는 중 · 앞에 ${j.queue}명`,0);return;}
+  if(!j.done){lastRun=[k,step?step[2]:'준비 중',j.elapsed,Date.now()]; runView(k,lastRun[1],j.elapsed);return;}
+  lastRun=null;
+  clearInterval(timer); $('stop').disabled=false; $('stop').textContent='멈추기'; live.finish(!j.error);
+  if(j.cancelled){mode('setup'); setStatus('run','멈췄어요. 설정을 바꿔 다시 만들 수 있어요.'); return;}
+  if(j.error){mode('setup'); showErr(friendly(j.error)); return;}
+  doneView(j);
+  planViews((j.summary||{}).analysis);
+  load3d();
+}
+// 결과 탭: 평면 미리보기 / 대지 분석 그림 / 3D / 기록
+function planViews(an){
+  rsubRender(an); resImg='preview_plan.png'; resultReady=true;
+  $('plan').src='/result/preview_plan.png?t='+Date.now(); $('plan').alt='평면'; $('plan').hidden=false; $('planempty').hidden=true; rsubSync();
+}
+// 완성 화면 (v2.0): 파일을 쓰임새별로 묶고, 자주 여는 것을 맨 위에
+const KIND={
+  '.3dm':['render','Rhino 모델','3DM',1], '.skp':['render','스케치업 모델','SKP',1], '.dae':['render','스케치업에서 열기 (DAE)','DAE'],
+  '.glb':['etc','미리보기 · 다른 3D 프로그램','GLB'], '.stl':['print','3D 프린트 (mm · 한 덩어리)','STL',1],
+};
+const NAMED2={'분석_경사.png':['ana','경사 분석도','PNG'],'분석_절성토.png':['ana','절토·성토 지도','PNG'],'분석_요약.csv':['ana','대지 분석 숫자표 (엑셀)','CSV'],
+  'preview_plan.png':['etc','평면 미리보기','PNG'],'road_marks_check.png':['etc','노면표시 확인 그림','PNG'],'street_trees.csv':['etc','가로수 목록','CSV'],
+  'summary.json':['etc','모델 정보','JSON'],'model_sketchup_build.json':['etc','스케치업 만들기 자료 (확장 › 콘타 모델 만들기)','JSON'],
+  'model_sketchup_info.json':['etc','스케치업 정보','JSON'],'스케치업_만들기.rb':['etc','스케치업 루비 스크립트','RB'],
+  '스케치업_확장_설치파일(모델아님).rbz':['etc','스케치업 불러오기 확장 (모델 아님)','RBZ'],'스케치업에서_여는_법.txt':['etc','스케치업에서 여는 법','TXT']};
+const GRP=[['render','렌더 · 3D'],['laser','레이저 재단'],['print','3D 프린트'],['ana','대지 분석']];
+let resDir='';
+function mb(x){return x>1e6?`${(x/1e6).toFixed(1)} MB`:`${Math.max(1,Math.round(x/1e3))} KB`;}
+async function doneView(j){
+  let f={files:[],summary:{}}; try{f=await (await fetch('/files')).json();}catch(e){}
+  const s=(j&&j.summary)||f.summary||{}; resDir=f.dir||'';
+  $('dtime').textContent=s.seconds!=null?`${mmss(s.seconds)} 걸렸어요 · ${esc(f.name||'')}`:esc(f.name||'');
+  const mm=s.model_size_mm||[];
+  const facts=[s.sheets!=null?`판 ${s.sheets}장`:'',s.buildings!=null?`건물 ${s.buildings.toLocaleString()}동`:'',s.trees?`나무 ${s.trees.toLocaleString()}그루`:'',
+    mm.length?`모형 ${mm[0]/10} × ${mm[1]/10} cm`:''].filter(Boolean);
+  const an=s.analysis; const facts2=an?[`대지 ${an.site_area_m2.toLocaleString()}㎡`,`평균 경사 ${an.slope_mean_deg}°`,`${an.slope_limit_deg}° 이상 ${an.over_limit_pct}%`,
+    ...(an.cut_m3!=null?[`깎기 ${an.cut_m3.toLocaleString()} · 쌓기 ${an.fill_m3.toLocaleString()} ㎥`]:[])]:[];
+  $('dline').innerHTML=esc(facts.join(' · '))+(facts2.length?'<br>'+esc(facts2.join(' · ')):'');
+  const notes=[...new Set($('plog').textContent.split('\n').map(x=>x.trim()).filter(x=>/못해|못했|못 받|건너|추정|없어 /.test(x)&&x.length<160))].slice(0,6);
+  $('dnotes').hidden=!notes.length; $('dnotesn').textContent=notes.length;
+  $('dnotesl').innerHTML=notes.map(x=>`<li>${esc(x)}</li>`).join('');
+  const by={render:[],laser:[],print:[],ana:[],etc:[]};
+  const hasSkp=f.files.some(x=>/\.skp$/i.test(x.name));
+  for(const x of f.files){
+    if(x.dir){ if(x.name==='laser') by.laser.push({...x,label:`판 ${s.sheets??x.count}장 DXF`,ext:'DXF',pri:1,sub:`laser 폴더 · ${x.count}개 · ${mb(x.size)}`}); continue; }
+    const ext=x.name.slice(x.name.lastIndexOf('.')).toLowerCase(); let k=NAMED2[x.name]||KIND[ext];
+    if(ext==='.dae'&&hasSkp) k=['etc',KIND[ext][1],'DAE'];
+    if(!k) k=['etc',x.name,ext.slice(1).toUpperCase()];
+    by[k[0]].push({...x,label:k[1],ext:k[2],pri:k[3],sub:`${x.name} · ${mb(x.size)}`});
+  }
+  const card=x=>`<div class="fcard"><span class="ext">${esc(x.ext)}</span><span class="nm"><b>${esc(x.label)}</b><small>${esc(x.sub)}</small></span>`+
+    `<button type="button" class="${x.pri?'pri':''}" data-f="${esc(x.name)}">${SRV&&!/^분석_.*\.png$|^preview_plan\.png$/.test(x.name)?'받기':x.dir?'폴더':/\.png$/i.test(x.name)?'보기':'열기'}</button></div>`;
+  $('dgroups').innerHTML=GRP.filter(([k])=>by[k].length).map(([k,t])=>`<div class="fgrp"><p>${t}</p>${by[k].map(card).join('')}</div>`).join('')+
+    (by.etc.length?`<details class="fmore"><summary>확인용 · 기타 파일 ${by.etc.length}개</summary>${by.etc.map(card).join('')}</details>`:'');
+  $('dgroups').querySelectorAll('button[data-f]').forEach(b=>b.onclick=()=>{const n=b.dataset.f;
+    if(/^분석_.*\.png$|^preview_plan\.png$/.test(n)){const i=RSUB.findIndex(r=>r[2]===n); if(i>=0){$('rsub').querySelector(`[data-i="${i}"]`).click(); return;}}
+    if(SRV){location.href='/download?name='+encodeURIComponent(n);return;}
+    fetch('/open',{method:'POST',body:JSON.stringify({name:n})});});
+  $('fpath').innerHTML=SRV?'파일은 24시간 뒤 서버에서 지워져요. 필요한 것은 지금 받아 두세요.':resDir?`${esc(resDir.replace(/[\\/][^\\/]+$/,''))}${resDir.includes('\\')?'\\':'/'}<b>${esc(f.name)}</b> <button type="button" class="lk2" id="cpath">경로 복사</button>`:'';
+  const cp=$('cpath'); if(cp) cp.onclick=async()=>{try{await navigator.clipboard.writeText(resDir); cp.textContent='복사했어요';}catch(e){cp.textContent='복사 못 함';}};
+  mode('done'); loadRecent(); show('p3d');
+}
+// 지난 결과: 창을 새로 고치거나 다른 날에도 다시 열어 볼 수 있게
+async function loadRecent(){
+  try{const j=await (await fetch('/recent')).json(); recentItems=j.items||[];}catch(e){recentItems=[];}
+  const cur=resDir.split(/[\\/]/).pop();
+  $('recent').innerHTML='최근 결과'+recentItems.slice(0,5).map(r=>`<button type="button" data-d="${esc(r.dir)}" class="${r.dir===cur?'on':''}">${esc(r.dir.replace(/_(\d{4})_(\d{4})$/,''))} · ${esc(r.when)}</button>`).join('·');
+  const p=document.querySelector('.pane.on')?.id; $('recent').hidden=!(RES.includes(p)&&p!=='plog'&&recentItems.length);
+  $('recent').querySelectorAll('button').forEach(b=>b.onclick=()=>openResult(b.dataset.d));
+}
+async function openResult(dir){
+  const r=await fetch('/view',{method:'POST',body:JSON.stringify({dir})}); const j=await r.json();
+  if(!r.ok){showErr({what:'그 결과를 열지 못했어요.',why:j.error,how:'결과 폴더를 옮겼거나 지웠다면 목록에서 빠져요.'});return;}
+  const f=await (await fetch('/files')).json(); $('plog').textContent='';
+  await doneView({summary:f.summary}); planViews((f.summary||{}).analysis); load3d(); show(lastRes==='plog'?'pplan':lastRes);
+}
+// 오류 안내: 무엇이 · 왜 · 어떻게
+function friendly(err){
+  const e=String(err||''), first=e.split('\n')[0];
+  const base={tech:e};
+  if(/먼저 수치지도/.test(e)) return {...base,what:'수치지도가 아직 없어요.',why:'모델을 만들 지형·건물 자료가 필요해요.',how:'01번 칸에 수치지도 2.0 (SHP) zip을 넣어 주세요.',acts:[['zip 고르기',()=>{hideErr();$('file').click();},1]]};
+  if(/이미 만들고/.test(e)) return {...base,what:'이미 만들고 있는 모델이 있어요.',why:'한 번에 하나씩만 만들 수 있어요.',how:'지금 것이 끝나거나 멈춘 뒤 다시 눌러 주세요.',acts:[['생성 과정 보기',()=>{hideErr();show('plive');},1]]};
+  const fm=e.match(/(도로시설 위치|가로등 위치|항공사진) 파일을 찾지 못했습니다: (.*)/);
+  if(fm) return {...base,what:`${fm[1]} 파일을 찾지 못했어요.`,why:`적어 둔 경로(${fm[2]})에 파일이 없어요.`,how:'자료 파일 칸의 경로를 고치거나 비워 두세요. 비우면 그 자료 없이 만들어요.',
+    acts:[['자료 파일 칸 열기',()=>{hideErr();document.querySelectorAll('details.more')[1].open=true;},1]]};
+  if(/MemoryError|메모리/.test(e)) return {...base,what:'컴퓨터 메모리가 모자랐어요.',why:'범위가 넓거나 건물 디테일이 높으면 메모리를 많이 써요.',how:'범위를 줄이거나 건물 디테일을 낮춰 다시 만들어 보세요.',
+    acts:[['디테일 1로 다시 만들기',()=>{$('detail').value='1';$('detail').dispatchEvent(new Event('change'));start(collect());},1]]};
+  if(/HTTP|40[13]|Timeout|timed out|Connection|SSL|인증키|key/i.test(e)) return {...base,what:'인터넷 자료를 받지 못했어요.',why:'인증키가 틀렸거나, 서비스 신청이 안 되어 있거나, 인터넷 연결이 끊겼어요.',how:'인증키 창에서 연결 시험을 눌러 어느 키가 문제인지 확인해 주세요.',
+    acts:[['인증키 확인하기',()=>{hideErr();window.openKeys&&window.openKeys();},1]]};
+  if(/건물 레이어|레이어가 없/.test(e)) return {...base,what:'수치지도에 필요한 레이어가 없어요.',why:first,how:'국토정보플랫폼에서 "수치지도 2.0 (SHP)" 형식으로 받은 zip인지 확인해 주세요.',acts:[['다른 zip 넣기',()=>{hideErr();$('s1chg').click();$('file').click();},1]]};
+  return {...base,what:'모델을 만드는 중에 문제가 생겼어요.',why:first.replace(/^\w+Error: /,''),how:'설정을 조금 바꿔 다시 만들어 보세요. 계속되면 아래 기술 정보를 복사해 알려 주세요.',
+    acts:[['다시 만들기',()=>start(lastBody||collect()),1],['기록 보기',()=>{hideErr();show('plog');}]]};
+}
+function showErr(o){
+  $('ewhat').textContent=o.what; $('ewhy').textContent=o.why; $('ehow').textContent=o.how;
+  $('etech').hidden=!o.tech; $('etechp').textContent=o.tech||'';
+  const a=$('eacts'); a.innerHTML='';
+  (o.acts||[]).concat([['닫기',hideErr]]).forEach(([t,fn,pri])=>{const b=document.createElement('button'); b.type='button'; b.textContent=t; if(pri) b.className='pri'; b.onclick=fn; a.appendChild(b);});
+  $('err').hidden=false;
+}
+function hideErr(){$('err').hidden=true;}
+
+(async()=>{try{const j=await (await fetch('/status')).json();
+  if(j.running){mode('run'); runView(0,'준비 중',j.elapsed); show('plive'); timer=setInterval(poll,1000); return;}
+  if(j.done&&!j.error&&!j.cancelled){await poll(); return;}
+  const r=await (await fetch('/recent')).json(); recentItems=r.items||[];
+  if(recentItems.length){$('mapempty').innerHTML='수치지도 zip과 대지 도면을 왼쪽 01번 칸에 넣으면 지도가 여기에 나와요.<br><br><span style="font-size:12.5px">지난 결과 열기: '+
+    recentItems.slice(0,5).map(x=>`<button type="button" class="lk2" data-d="${esc(x.dir)}" style="margin:0 6px">${esc(x.dir)}</button>`).join('')+'</span>';
+    $('mapempty').querySelectorAll('[data-d]').forEach(b=>b.onclick=()=>openResult(b.dataset.d));}
+}catch(e){}})();
+// 3D 보기 (결과가 이미 있으면 window.load3d() 로 다시 불러올 수 있음)
+import * as THREE from 'three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {smartZoom} from './zoom.js';
+let R,S,C,O,Z,root,sun;
+function init3d(){
+  R=new THREE.WebGLRenderer({antialias:true}); R.setPixelRatio(devicePixelRatio);
+  R.shadowMap.enabled=true; R.shadowMap.type=THREE.PCFSoftShadowMap; R.toneMapping=THREE.ACESFilmicToneMapping; R.toneMappingExposure=0.8;
+  $('three').appendChild(R.domElement);
+  S=new THREE.Scene(); S.background=new THREE.Color('#d9d9d9');
+  S.add(new THREE.HemisphereLight(0xffffff,0x9a9a9a,1.5));
+  C=new THREE.PerspectiveCamera(30,1,1,20000); O=new OrbitControls(C,R.domElement); O.addEventListener('change',draw);
+  Z=smartZoom(C,O,R.domElement,()=>root,draw);   // 휠 = 마우스 아래 면으로 확대(모델 속으로 빠지지 않게)
+}
+function draw(){R&&R.render(S,C);}
+// 3D 나무 켜고 끄기 (숲이 넓으면 지형·건물을 덮는다)
+let TREES=[], treeOn=true;
+$('tgtree').onclick=()=>{treeOn=!treeOn; TREES.forEach(o=>o.visible=treeOn); $('tgtree').classList.toggle('off',!treeOn); $('tgtree').textContent=treeOn?'나무 보이기':'나무 숨김'; draw();};
+function resize3d(){if(!R) return; const el=$('three'); R.setSize(el.clientWidth,el.clientHeight); C.aspect=el.clientWidth/el.clientHeight; C.updateProjectionMatrix(); draw();}
+window.load3d=()=>load3d();
+function load3d(){
+  if(!R) init3d(); $('threeempty').textContent='3D 모델 불러오는 중…';
+  if(root){S.remove(root);}
+  new GLTFLoader().load('/result/model.glb?t='+Date.now(),g=>{
+    root=g.scene; root.rotation.x=-Math.PI/2;
+    root.traverse(o=>{if(!o.isMesh) return; o.castShadow=o.receiveShadow=true; const vc=!!o.geometry.attributes.color, soft=o.name.includes('terrain_slope')||o.name==='terrain';
+      if(soft) o.geometry.computeVertexNormals();
+      // 색 변환은 같은 메시를 쓰는 개체가 여럿이어도 한 번만. 나무는 변환하지 않아 밝게(변환하면 숲이 검게 보였다)
+      let tree=false; for(let q=o;q;q=q.parent) if(/^t\d+$|^trees$|^tree_/.test(q.name)){tree=true;break;}
+      if(vc&&!o.geometry.userData.lin&&!tree){o.geometry.userData.lin=1; const a=o.geometry.attributes.color, t=new THREE.Color(); for(let i=0;i<a.count;i++){t.setRGB(a.getX(i),a.getY(i),a.getZ(i)).convertSRGBToLinear(); a.setXYZ(i,t.r,t.g,t.b);}}
+      o.material=new THREE.MeshStandardMaterial({color:vc?0xffffff:0xc8c8c8,vertexColors:vc,roughness:0.9,flatShading:!soft});});
+    S.add(root);
+    const b=new THREE.Box3().setFromObject(root), c=b.getCenter(new THREE.Vector3()), d=Math.max(...b.getSize(new THREE.Vector3()).toArray());
+    if(sun){S.remove(sun,sun.target);}
+    sun=new THREE.DirectionalLight(0xffffff,1.8); sun.castShadow=true; sun.shadow.mapSize.set(4096,4096); sun.shadow.bias=-0.0004; sun.shadow.normalBias=0.4;
+    sun.position.set(c.x+d*0.75,c.y+d*0.7,c.z-d*0.25); sun.target.position.copy(c); S.add(sun,sun.target);
+    const sc=sun.shadow.camera; sc.left=sc.bottom=-d*0.8; sc.right=sc.top=d*0.8; sc.near=1; sc.far=d*4; sc.updateProjectionMatrix();
+    C.position.set(c.x-d*0.95,c.y+d*0.95,c.z+d*1.15); O.target.copy(c); O.update(); C.near=Math.max(d/500,0.05); C.far=d*20; C.updateProjectionMatrix(); Z.setModel(root);
+    TREES=[]; root.traverse(o=>{if(/^t\d+$|^trees$|^tree_/.test(o.name)) TREES.push(o);});
+    $('treetg').hidden=!TREES.length; treeOn=true; $('tgtree').classList.remove('off'); $('tgtree').textContent='나무 보이기';
+    $('threeempty').hidden=true; $('legend').hidden=false; resize3d();
+  },undefined,e=>{$('threeempty').textContent='3D 미리보기를 열지 못했습니다. 결과 폴더의 model.3dm을 Rhino로 열어 보세요.';});
+}
+</script>
+<script type="module">
+// v1.4 왼쪽 칸: 용도 프리셋 · 지형/디테일 버튼 · 인증키 서랍
+(function(){
+const $=id=>document.getElementById(id);
+const P={
+  laser:{terrain:'step',detail:'1',on:{green:1,street:1,lights:0,roadx:0,structs:0,skp:0},d:'계단판 + 매스. 판마다 레이저 DXF, 나무 자리는 구멍으로'},
+  render:{terrain:'combo',detail:'3',on:{green:1,street:1,lights:1,roadx:1,structs:1,skp:1},d:'경사 매스, 창문·재료, 나무·도로 디테일, 스케치업까지 전부'},
+  quick:{terrain:'slope',detail:'1',on:{green:0,street:0,lights:0,roadx:0,structs:0,skp:0},d:'경사면 + 매스만. 범위가 맞는지 먼저 볼 때'},
+  custom:{d:'아래 항목을 하나씩 켜고 끄세요'}};
+const T=['green','street','lights','roadx','structs','skp'];
+let cur='render', busy=false;
+function store(k,v){try{localStorage.setItem('contour_'+k,v)}catch(e){}}
+function load(k){try{return localStorage.getItem('contour_'+k)}catch(e){return null}}
+function segSync(id,sel){document.querySelectorAll('#'+id+' button').forEach(b=>b.classList.toggle('on',b.dataset.v===$(sel).value));}
+function sync(){
+  document.querySelectorAll('#presets button').forEach(b=>{const on=b.dataset.p===cur;b.classList.toggle('on',on);b.setAttribute('aria-checked',on)});
+  $('pdesc').textContent=P[cur].d;
+  segSync('terrainseg','terrain'); segSync('detailseg','detail');
+  const lowDetail=+$('detail').value<2; $('roadx').disabled=lowDetail;
+  T.forEach(k=>$(k).closest('li').classList.toggle('off',!$(k).checked||$(k).disabled));
+  $('aerialbox').hidden=false; $('lightbox').hidden=!$('lights').checked; $('roadxbox').hidden=!$('roadx').checked||lowDetail;
+  const o=['3dm']; if($('terrain').value!=='slope') o.push('레이저 판 DXF'); if($('skp').checked) o.push('스케치업');
+  $('outs').textContent=o.join(' · ');
+  const sc=+$('scale').value||1000, iv=+$('interval').value||5;
+  $('moresum').textContent=`1:${sc} · 판 ${iv} m · 층 ${$('floor').value} m`;
+  const n=['afile','lfile','rfile','hddir','demfile'].filter(k=>$(k).value.trim()).length; $('filesum').textContent=n?`${n}개`:'없음';
+}
+function apply(p){cur=p; store('preset',p); const c=P[p];
+  if(c.terrain){busy=true; $('terrain').value=c.terrain; $('detail').value=c.detail; T.forEach(k=>{$(k).checked=!!c.on[k]; $(k).dispatchEvent(new Event('change'))}); busy=false;}
+  sync();}
+document.querySelectorAll('#presets button').forEach(b=>b.onclick=()=>apply(b.dataset.p));
+// 지형 다듬기 (v1.15): 부드럽게 / 등고선 그대로 — 이 PC에 기억
+(()=>{const bs=[...document.querySelectorAll('#fitseg button')]; let v='smooth'; try{v=localStorage.getItem('contour_fit')||'smooth';}catch(e){}
+  const set=x=>{bs.forEach(b=>b.classList.toggle('on',b.dataset.v===x)); try{localStorage.setItem('contour_fit',x);}catch(e){}};
+  set(v); bs.forEach(b=>b.onclick=()=>set(b.dataset.v));})();
+[['terrainseg','terrain'],['detailseg','detail']].forEach(([s,sel])=>document.querySelectorAll('#'+s+' button').forEach(b=>b.onclick=()=>{$(sel).value=b.dataset.v; cur='custom'; store('preset',cur); sync();}));
+T.forEach(k=>$(k).addEventListener('change',()=>{if(!busy){cur='custom'; store('preset',cur);} sync();}));
+['scale','interval','floor','afile','lfile','rfile','hddir'].forEach(k=>$(k).addEventListener('input',sync));
+const saved=load('preset'); apply(P[saved]&&saved!=='custom'?saved:'render');
+
+// 1단계: 다 넣으면 접기
+window.markLoaded=()=>{$('s1').classList.add('done');};
+
+// 인증키 서랍
+const K=['vkey','dkey','skey','smkey'];
+function keyState(){let n=0; K.forEach(k=>{const v=$(k).value.trim(); if(v) n++; const b=document.querySelector(`.kb[data-k="${k}"]`); b.textContent=v?'저장됨':'비어 있음'; b.classList.toggle('ok',!!v);});
+  $('keycount').textContent=`${n}/4`; $('keybtn').classList.toggle('miss',!$('vkey').value.trim());}
+K.forEach(k=>$(k).addEventListener('input',keyState)); keyState();
+let lastFocus=null;
+function openKeys(){lastFocus=document.activeElement; $('keys').hidden=false; $('scrim').hidden=false; $('vkey').focus();}
+function closeKeys(){$('keys').hidden=true; $('scrim').hidden=true; keyState(); lastFocus&&lastFocus.focus();}
+$('keybtn').onclick=openKeys; $('keyclose').onclick=closeKeys; $('scrim').onclick=closeKeys;
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('keys').hidden) closeKeys();});
+window.openKeys=openKeys;
+})();
+</script>
+<div id="srvbar" hidden>
+  <button type="button" id="fbopen">의견 보내기</button>
+</div>
+<section class="drawer" id="fb" role="dialog" aria-modal="true" aria-labelledby="fbttl" hidden>
+  <div class="dr-head"><h2 id="fbttl">의견 보내기</h2><button type="button" class="x" id="fbclose" aria-label="닫기">×</button></div>
+  <p class="info" style="margin-top:0">오류, 불편한 점, 있었으면 하는 기능 무엇이든 좋아요. 보내 주신 의견으로 다음 버전을 고칩니다.</p>
+  <label for="fbkind">종류</label>
+  <select id="fbkind"><option value="bug">오류·이상한 결과</option><option value="ux">불편한 점</option><option value="idea">있었으면 하는 기능</option><option value="etc">기타·칭찬</option></select>
+  <label>얼마나 쓸모 있었나요 (1~5)</label>
+  <div class="fbstars" id="fbstars"></div>
+  <label for="fbtext">내용</label>
+  <textarea id="fbtext" rows="6" maxlength="4000" placeholder="예: 대지 경계 DXF를 넣었더니 범위가 엉뚱한 곳으로 갔어요"></textarea>
+  <label for="fbcontact">답장 받을 연락처 (선택)</label>
+  <input type="text" id="fbcontact" placeholder="이메일 또는 인스타그램 아이디">
+  <button class="go" id="fbsend" style="margin-top:12px">보내기</button>
+  <div class="info" id="fbres"></div>
+</section>
+<style>
+body.srv .desk, body.srv #keybtn, body.srv #testapi, body.srv label[for=out], body.srv #out, body.srv #filesdet{display:none!important}
+#srvbar{position:fixed;right:18px;bottom:18px;z-index:40;display:flex;gap:8px}
+#srvbar[hidden]{display:none}
+#srvbar button{font:inherit;font-size:14px;font-weight:600;background:#111;color:#fff;border:0;border-radius:999px;padding:10px 18px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.15)}
+.fbstars{display:flex;gap:6px;margin:4px 0 8px}
+.fbstars button{font:inherit;width:40px;height:36px;border:1px solid #ddd;background:#fff;border-radius:8px;cursor:pointer}
+.fbstars button.on{background:#111;color:#fff;border-color:#111}
+#fb textarea,#fb select{width:100%;font:inherit;font-size:14px;border:1px solid #ddd;border-radius:8px;padding:8px 10px;box-sizing:border-box}
+.srvnote{font-size:12px;color:#2563eb;margin:4px 0 0}
+</style>
+<script>
+var SRV=false, SRVCFG=null;
+(async()=>{try{SRVCFG=await (await fetch('/config')).json();}catch(e){return;}
+  if(!SRVCFG.server) return;
+  SRV=true; document.body.classList.add('srv');
+  const fd=document.getElementById('aerialbox'); if(fd&&fd.closest('details')) fd.closest('details').id='filesdet';
+  const L=SRVCFG.limits||{};
+  ['w','h'].forEach(k=>{const e=document.getElementById(k); if(e) e.max=L.max_side||1000;});
+  const wbox=document.getElementById('w'); if(wbox){const p=document.createElement('p'); p.className='srvnote';
+    p.textContent='이 사이트에서는 한 변 '+(L.max_side||1000)+'m까지, 하루 '+(L.runs_per_day||5)+'번까지 만들 수 있어요.';
+    const row=wbox.closest('.row'); if(row) row.after(p);}
+  const of=document.getElementById('openf'); if(of) of.textContent='전부 한 번에 받기 (zip)';
+  const hd=document.querySelector('.sb-head .ver'); if(hd) hd.innerHTML+=' · <a href="/" style="color:inherit">소개</a>';
+  document.getElementById('srvbar').hidden=false;
+})();
+(()=>{const g=id=>document.getElementById(id); let rate=null;
+  g('fbstars').innerHTML=[1,2,3,4,5].map(n=>'<button type="button" data-n="'+n+'">'+n+'</button>').join('');
+  g('fbstars').querySelectorAll('button').forEach(b=>b.onclick=()=>{rate=+b.dataset.n;
+    g('fbstars').querySelectorAll('button').forEach(x=>x.classList.toggle('on',+x.dataset.n<=rate));});
+  const open=()=>{g('fb').hidden=false; g('scrim').hidden=false; g('fbtext').focus();};
+  const close=()=>{g('fb').hidden=true; g('scrim').hidden=true;};
+  g('fbopen').onclick=open; g('fbclose').onclick=close;
+  g('scrim').addEventListener('click',()=>{if(!g('fb').hidden) close();});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!g('fb').hidden) close();});
+  g('fbsend').onclick=async()=>{const text=g('fbtext').value.trim(); if(!text){g('fbres').textContent='내용을 적어 주세요.';return;}
+    g('fbsend').disabled=true;
+    try{const r=await fetch('/feedback',{method:'POST',body:JSON.stringify({text,kind:g('fbkind').value,rating:rate,contact:g('fbcontact').value.trim(),page:'app'})});
+      const j=await r.json(); if(!r.ok) throw new Error(j.error);
+      g('fbres').textContent='고마워요. 잘 받았습니다.'; g('fbtext').value='';}
+    catch(e){g('fbres').textContent='보내지 못했어요: '+e.message;}
+    g('fbsend').disabled=false;};
+})();
+</script>
+</body>
+</html>

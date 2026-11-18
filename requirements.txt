@@ -1,0 +1,13 @@
+numpy
+scipy
+shapely>=2.0
+contourpy
+matplotlib
+pyshp>=2.3
+pyproj
+ezdxf>=1.1
+trimesh>=4.0
+mapbox_earcut
+manifold3d
+rhino3dm>=8.0
+rasterio>=1.3

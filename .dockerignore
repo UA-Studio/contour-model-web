@@ -1,0 +1,6 @@
+_시험
+_자료원본
+*.pyc
+__pycache__
+.git
+.github
