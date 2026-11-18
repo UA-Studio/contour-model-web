@@ -359,7 +359,10 @@ class Job:
                 import tempfile
                 self.tmp = tempfile.tempdir = os.path.join(os.path.dirname(self.out), "_tmp")
                 os.makedirs(self.tmp, exist_ok=True)
-            self.summary = pipeline.run(src["folder"], p.pop("out"), log=self.log, progress=self.progress, **p)
+            if SERVER:
+                self.summary = self._run_in_process(src["folder"], p.pop("out"), p)
+            else:
+                self.summary = pipeline.run(src["folder"], p.pop("out"), log=self.log, progress=self.progress, **p)
             self.summary["source"] = os.path.basename(src["zip"])
             # 화면 미리보기용: 결과 폴더 안에 이 화면 파일도 넣어 둔다(나중에 다시 열기)
         except Cancelled:
@@ -378,6 +381,83 @@ class Job:
             if getattr(self, "tmp", None):
                 shutil.rmtree(self.tmp, ignore_errors=True)
             self.done = True
+
+
+def _child_run(folder, out, params, live, tmp, q):
+    """서버 모드: 모델 만들기를 따로 된 프로세스에서 돌린다.
+    Rhino 저장(rhino3dm)이 파이썬 전체를 붙잡아도 웹 서버는 계속 대답하고, 멈추기·시간 제한 때 확실히 끝낼 수 있다."""
+    import tempfile
+    tempfile.tempdir = tmp
+    from . import pipeline as pl
+    from .progress import Progress
+    pg = Progress(live)
+
+    def emit(**ev):
+        ev["at"] = round(time.time(), 2)
+        q.put(("ev", ev))
+    pg._emit = emit
+    try:
+        summ = pl.run(folder, out, log=lambda *a: q.put(("log", " ".join(str(x) for x in a))), progress=pg, **params)
+        q.put(("done", json.loads(json.dumps(summ, default=str))))
+    except SystemExit as e:
+        q.put(("err", str(e), ""))
+    except BaseException as e:
+        q.put(("err", f"{type(e).__name__}: {e}", traceback.format_exc()))
+
+
+def _job_process(self, folder, out, params):
+    import multiprocessing as mp
+    import queue as _q
+    ctx = mp.get_context("spawn")
+    q = ctx.Queue()
+    params = dict(params)
+    params.pop("progress", None)
+    proc = ctx.Process(target=_child_run, args=(folder, out, params, self.live, self.tmp, q), daemon=True)
+    proc.start()
+    result, err = None, None
+    try:
+        while True:
+            if self.cancelled:
+                proc.terminate()
+                proc.join(5)
+                raise Cancelled()
+            try:
+                msg = q.get(timeout=0.5)
+            except _q.Empty:
+                if not proc.is_alive():
+                    try:                      # 끝나는 순간 남은 신호
+                        msg = q.get(timeout=1)
+                    except _q.Empty:
+                        code = proc.exitcode
+                        raise RuntimeError("모델을 만드는 중 서버 메모리가 모자라 멈췄습니다. 범위를 줄이거나 디테일을 낮춰 다시 해 보세요."
+                                           if code in (-9, 137) else f"모델 만들기가 중간에 끝났습니다 (코드 {code}).")
+                else:
+                    continue
+            kind = msg[0]
+            if kind == "log":
+                self.lines.append(msg[1])
+            elif kind == "ev":
+                with self.progress._lock:
+                    self.progress.events.append(msg[1])
+            elif kind == "done":
+                result = msg[1]
+                break
+            elif kind == "err":
+                err = msg
+                break
+    finally:
+        if proc.is_alive():
+            proc.join(10)
+            if proc.is_alive():
+                proc.terminate()
+    if err:
+        if err[2]:
+            self.lines.append(err[2])
+        raise SystemExit(err[1])
+    return result
+
+
+Job._run_in_process = _job_process
 
 
 def start_job(q):
@@ -902,7 +982,7 @@ class Handler(BaseHTTPRequestHandler):
             # 예상 못 한 오류: 검은 창에 자세한 기록을 남기고 화면에는 종류와 내용을 보인다
             traceback.print_exc()
             return self._send(500, {"error": f"{u.path} 처리 중 예상 못 한 오류 ({type(e).__name__}: {e}). "
-                                             ("오른쪽 아래 '의견 보내기'로 알려 주시면 고치겠습니다." if SERVER
+                                             + ("오른쪽 아래 '의견 보내기'로 알려 주시면 고치겠습니다." if SERVER
                                              else "검은 창에 나온 내용을 알려 주시면 고치겠습니다.")})
         self._send(404, {"error": "없음"})
 
