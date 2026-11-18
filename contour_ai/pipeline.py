@@ -335,7 +335,7 @@ def run(source, out_dir, name=None, latlon=None, xy=None, size=500, green=True, 
             yr = year or (time.localtime().tm_year - (1 if time.localtime().tm_mon < 10 else 0))
             cache_dir = cache_dir or os.path.join(os.path.expanduser("~"), ".contour_ai_cache")
             os.makedirs(cache_dir, exist_ok=True)
-            key = f"ndvi_{tile}_{yr}_{int(bbox[0])}_{int(bbox[1])}_{int(bbox[2])}_{int(bbox[3])}.npz"
+            key = f"ndvi2_{tile}_{yr}_{int(bbox[0])}_{int(bbox[1])}_{int(bbox[2])}_{int(bbox[3])}.npz"
             ndvi = os.path.join(cache_dir, key)
             pg.step("0.6")
             if not os.path.exists(ndvi):
