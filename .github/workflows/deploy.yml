@@ -7,11 +7,33 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     concurrency: deploy
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      # 아래 값은 GitHub 저장소 Settings › Secrets and variables › Actions 에 넣으면 서버로 옮겨진다 (없으면 건너뜀)
+      CONTOUR_ADMIN_TOKEN: ${{ secrets.CONTOUR_ADMIN_TOKEN }}
+      VWORLD_KEY: ${{ secrets.VWORLD_KEY }}
+      VWORLD_DOMAIN: ${{ secrets.VWORLD_DOMAIN }}
+      DATA_GO_KR_KEY: ${{ secrets.DATA_GO_KR_KEY }}
+      SEOUL_KEY: ${{ secrets.SEOUL_KEY }}
+      SAFEMAP_KEY: ${{ secrets.SAFEMAP_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: superfly/flyctl-actions/setup-flyctl@master
-      - run: |
+      - name: 배포
+        run: |
           if [ -z "$FLY_API_TOKEN" ]; then echo "FLY_API_TOKEN 비밀값이 아직 없어 배포를 건너뜁니다"; exit 0; fi
-          flyctl deploy --remote-only
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          APP=$(sed -n 's/^app *= *"\(.*\)".*/\1/p' fly.toml)
+          # 처음 한 번: 앱과 디스크 만들기
+          if ! flyctl status -a "$APP" >/dev/null 2>&1; then
+            flyctl apps create "$APP" || { echo "앱 이름 '$APP' 을 만들 수 없습니다 (이미 누가 쓰는 이름일 수 있음). fly.toml 의 app 이름을 바꿔 주세요."; exit 1; }
+          fi
+          if ! flyctl volumes list -a "$APP" | grep -q contour_data; then
+            flyctl volumes create contour_data -a "$APP" -r nrt -s 1 -y
+          fi
+          # 비밀값 옮기기 (값이 있는 것만)
+          ARGS=""
+          for k in CONTOUR_ADMIN_TOKEN VWORLD_KEY VWORLD_DOMAIN DATA_GO_KR_KEY SEOUL_KEY SAFEMAP_KEY; do
+            v="${!k}"; [ -n "$v" ] && ARGS="$ARGS $k=$v"
+          done
+          [ -n "$ARGS" ] && flyctl secrets set --stage -a "$APP" $ARGS
+          flyctl deploy --remote-only -a "$APP"

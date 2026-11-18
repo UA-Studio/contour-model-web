@@ -1,5 +1,5 @@
 # fly.io 설정. app 이름은 fly.io 에서 정한 이름으로 바꾼다.
-app = "contour-model"
+app = "contour-model-web"
 primary_region = "nrt"          # 도쿄: 한국에서 가장 가까움
 
 [build]
