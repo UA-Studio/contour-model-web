@@ -715,6 +715,8 @@ class Handler(BaseHTTPRequestHandler):
         path = unquote(u.path)
         if SERVER and path in ("/", "/about"):       # 공개 사이트 첫 화면: 소개 → '바로 써 보기'
             return self._file(os.path.join(WEB, "site", "index.html"))
+        if SERVER and path == "/legal":
+            return self._file(os.path.join(WEB, "site", "legal.html"))
         if SERVER and path.startswith("/site/"):
             p = os.path.normpath(os.path.join(WEB, path.lstrip("/")))
             return self._file(p) if p.startswith(os.path.join(WEB, "site")) else self._send(403, {})
