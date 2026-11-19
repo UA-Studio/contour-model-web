@@ -1601,7 +1601,7 @@ def write_laser(out_dir, regions, masses, draped, origin, scale, areas=(), trees
 
 
 # ---------------------------------------------------------------- 메인
-DEFAULTS = dict(site=None, site_clear=False, site_keep_terrain=False, dem=None, terrain_fit="smooth", breaklines=False, pads=True, scale=1000, interval=5, min_area=None, floor_height=FLOOR_HEIGHT, sigma=4.0, smooth=1.5,
+DEFAULTS = dict(site=None, site_clear=False, site_keep_terrain=False, dem=None, terrain_fit="smooth", breaklines=False, pads=True, parcel_file=None, scale=1000, interval=5, min_area=None, floor_height=FLOOR_HEIGHT, sigma=4.0, smooth=1.5,
                 terrain="combo", no_trees=False, ndvi=None, aerial=None, crs_wkt=None, vworld_key=None,
                 vworld_domain="", data_key=None, cache_dir=None, tree_spacing=8.0, tree_hole=1.0,
                 road_thickness=ROAD_THICKNESS, sketchup=True, green=True, lights=True, light_files=(),
@@ -1818,6 +1818,35 @@ def _real_street_trees(a, path_areas, masses, regions, bbox, log, pg):
     return trees
 
 
+def _pad_parcels(a, bbox, log):
+    """계단식 대지에 쓸 연속지적도 필지: 사용자가 준 지적도 파일 → 브이월드 2D데이터(키가 있을 때). 없으면 []."""
+    from .pads import jimok, load_parcels
+    crs_wkt = a.crs_wkt
+    if not crs_wkt and os.path.isdir(a.src):
+        try:
+            from .pipeline import read_crs
+            crs_wkt = read_crs(a.src).to_wkt()
+        except Exception:
+            crs_wkt = None
+    if not crs_wkt:
+        return []
+    try:
+        if a.parcel_file:
+            pcl = load_parcels(a.parcel_file, bbox, crs_wkt)
+            log(f"   연속지적도 파일에서 필지 {len(pcl):,}개")
+            return pcl
+        if a.vworld_key:
+            from .publicdata import parcels
+            cache = a.cache_dir or os.path.join(os.path.expanduser("~"), ".contour_ai_cache")
+            b = (bbox[0] - 20, bbox[1] - 20, bbox[2] + 20, bbox[3] + 20)
+            pcl = [(g, jimok(j)) for g, _, j in parcels(a.vworld_key, b, crs_wkt, a.vworld_domain, cache)]
+            log(f"   브이월드 연속지적도에서 필지 {len(pcl):,}개")
+            return pcl
+    except Exception as e:
+        log(f"   (연속지적도를 받지 못해 필지 없이 계단식 대지를 만듭니다: {type(e).__name__}: {e})")
+    return []
+
+
 def build(src, bbox, out="out", log=print, **kw):
     """수치지도(SHP 폴더 또는 DXF)에서 콘타 모델 전체를 만든다. 반환: 요약 dict."""
     from types import SimpleNamespace
@@ -1875,8 +1904,9 @@ def build(src, bbox, out="out", log=print, **kw):
             if not os.path.isdir(a.src):
                 barriers += list(data.get("roads", ()))      # DXF: 길은 선뿐이라 선을 막는 선으로
             roads_u = unary_union(data["road_areas"]) if data.get("road_areas") else None
+            pcl = _pad_parcels(a, bbox, log)
             pads = build_pads(bl, interp, bbox, barriers=barriers, roads=roads_u, paddies=data.get("paddies", ()),
-                              exclude=site_p if uses_site else None, log=log)
+                              exclude=site_p if uses_site else None, parcels=pcl, log=log)
         except Exception as e:
             log(f"   (계단식 대지를 만들지 못함: {type(e).__name__}: {e})")
             pads = None

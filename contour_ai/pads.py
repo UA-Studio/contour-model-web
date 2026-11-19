@@ -19,6 +19,15 @@ import math
 
 import numpy as np
 
+# 연속지적도 지목 중 깎고 메워 평평하게 쓰는 땅 (대지·공장·학교·주차장·주유소·창고·종교·체육·잡종지·묘지·유원지)
+DEVELOPED = set("대장학차주창종체잡묘원")
+
+
+def jimok(jibun):
+    """연속지적도 지번 글자('556-118대', '산12임')에서 지목 한 글자."""
+    j = str(jibun or "").strip()
+    return j[-1] if j and not j[-1].isdigit() and j[-1] != "-" else ""
+
 
 class PadField:
     """평평한 터 높이 격자. apply(xy, z) 로 원래 높이 z 를 터 높이로 바꾼다."""
@@ -119,13 +128,16 @@ def _union_find_merge(lab, levels, counts, tol):
     return glevel, roots
 
 
-def build_pads(buildings, interp, bbox, barriers=(), roads=None, paddies=(), exclude=None,
+def build_pads(buildings, interp, bbox, barriers=(), roads=None, paddies=(), exclude=None, parcels=(),
+               dev_step=3.0, dev_max=60000.0,
                cell=0.5, reach=10.0, merge_tol=1.0, max_cut=6.0, max_span=8.0, paddy_step=1.5,
                max_ramp=6.0, slope=1.0, margin=12.0, lot_reach=30.0, lot_max=1500.0, lot_gap=3.0, log=print):
     """건물 발자국·막는 선·길 면·논으로 평평한 터 격자를 만든다. 반환: PadField 또는 None.
 
     buildings: 건물 면 목록, barriers: 옹벽·석축·절토·성토·담장 선, roads: 길 면(합친 것),
     paddies: 논 면, exclude: 터를 만들지 않을 곳(사업지 레벨을 쓰는 대지 등).
+    parcels: 연속지적도 필지 [(면, 지목 한 글자)]. 주면 필지 경계가 터의 경계(옹벽)가 되고,
+      대지·학교·공장 같은 개발 필지는 통째로 한 단(높이 폭이 dev_step 넘으면 dev_step 마다 단), 답(논)은 논처럼.
     """
     from rasterio import features, transform
     from scipy import ndimage
@@ -147,8 +159,15 @@ def build_pads(buildings, interp, bbox, barriers=(), roads=None, paddies=(), exc
     blds = [g for g in buildings if g is not None and not g.is_empty and g.area >= 4.0 and g.intersects(area)]
     if exclude is not None and not exclude.is_empty:
         blds = [g for g in blds if g.intersection(exclude).area < 0.5 * g.area]
-    pdy = [g for g in paddies if g is not None and not g.is_empty and g.area >= 20.0 and g.intersects(area)]
-    if not blds and not pdy:
+    pcl = [(g, j) for g, j in parcels if g is not None and not g.is_empty and g.intersects(area)]
+    pdy = [g for g in list(paddies) + [g for g, j in pcl if j == "답"]
+           if g is not None and not g.is_empty and g.area >= 20.0 and g.intersects(area)]
+    dev = [g for g, j in pcl if j in DEVELOPED and 20.0 <= g.area <= dev_max]
+    if exclude is not None and not exclude.is_empty:
+        dev = [g for g in dev if g.intersection(exclude).area < 0.5 * g.area]
+    if pcl:
+        barriers = list(barriers) + [g.boundary for g, j in pcl]
+    if not blds and not pdy and not dev:
         return None
     # 큰 건물을 먼저 그려 작은 부속 건물이 제 칸을 지키게
     blds.sort(key=lambda g: -g.area)
@@ -157,12 +176,13 @@ def build_pads(buildings, interp, bbox, barriers=(), roads=None, paddies=(), exc
     wall = raster(((g, 1) for g in barriers), all_touched=True).astype(bool)
     excl = raster([(exclude, 1)]).astype(bool) if exclude is not None else np.zeros(shp, bool)
     plab = raster(((g, i + 1) for i, g in enumerate(pdy)), dtype="int32")
+    dlab = raster(((g, i + 1) for i, g in enumerate(dev)), dtype="int32")
 
     bmask = blab > 0
     nb = len(blds)
     # 원래 높이는 건물 둘레·논에서만 잰다(격자 전체를 재면 느림)
     need = (ndimage.distance_transform_edt(~bmask) * cell <= reach + 1.0) if bmask.any() else np.zeros(shp, bool)
-    need |= plab > 0
+    need |= (plab > 0) | (dlab > 0)
     need &= ~excl
     rr, cc = np.nonzero(need)
     Zn = np.full(shp, np.nan, np.float32)
@@ -241,34 +261,63 @@ def build_pads(buildings, interp, bbox, barriers=(), roads=None, paddies=(), exc
                         break
                     lab[new] = g[new]
 
-    # 3) 논: 한 필은 평평하게, 비탈에 걸친 큰 논은 paddy_step 마다 다랑이로
     extra = []
+    nid = [nb + 1]
+
+    def bands(sl, m, z, step, base_level=None):
+        """sl 조각 안 m 칸을 높이 폭에 따라 한 단 또는 step 마다 여러 단으로. 반환: 다랑이로 나눴는지"""
+        ok = np.isfinite(z)
+        if ok.sum() < 8:
+            return False
+        zlo, zhi = np.nanmin(z), np.nanmax(z)
+        split = zhi - zlo > step
+        band = np.floor((z - zlo) / step).astype(int) if split else np.zeros(z.shape, int)
+        sub = lab[sl]
+        mi = np.argwhere(m)
+        for b in np.unique(band[ok]):
+            sel = ok & (band == b)
+            if sel.sum() < 4:
+                continue
+            extra.append(float(base_level) if (base_level is not None and not split) else float(np.median(z[sel])))
+            sub[mi[sel, 0], mi[sel, 1]] = nid[0]
+            nid[0] += 1
+        return split
+
+    # 2c) 개발 필지(대지·학교·공장 …): 필지 하나를 통째로 한 단. 건물이 있으면 건물 터 높이를 따른다.
+    #     높이 폭이 dev_step 을 넘는 큰 필지(아파트 단지·학교)는 dev_step 마다 단으로 나누고, 건물 터는 제 높이를 지킨다.
+    n_dev = n_dev_split = 0
+    for k, sl in enumerate(ndimage.find_objects(dlab), start=1):
+        if sl is None:
+            continue
+        m = (dlab[sl] == k) & ~road[sl] & ~excl[sl] & ~blocked[sl]
+        if m.sum() < 8:
+            continue
+        z = Zn[sl][m]
+        if not np.isfinite(z).any():
+            continue
+        span = np.nanmax(z) - np.nanmin(z)
+        bl = blab[sl][m]
+        bl = bl[(bl > 0) & np.isfinite(levels[np.minimum(bl, nb)])] if nb else bl[:0]
+        n_dev += 1
+        if span <= dev_step:
+            base = float(np.median(levels[bl])) if len(bl) else None
+            bands(sl, m, z, dev_step, base_level=base)
+        else:
+            mm = m & (lab[sl] == 0)
+            if bands(sl, mm, Zn[sl][mm], dev_step):
+                n_dev_split += 1
+
+    # 3) 논: 한 필은 평평하게, 비탈에 걸친 큰 논은 paddy_step 마다 다랑이로
     n_terr = 0
     if pdy:
-        nid = nb + 1
         for k, sl in enumerate(ndimage.find_objects(plab), start=1):
             if sl is None:
                 continue
             m = (plab[sl] == k) & (lab[sl] == 0) & ~road[sl] & ~excl[sl]
             z = Zn[sl][m]
-            ok = np.isfinite(z)
-            if ok.sum() < 8:
-                continue
-            zlo, zhi = np.nanmin(z), np.nanmax(z)
-            if zhi - zlo <= 2 * paddy_step:
-                band = np.zeros(z.shape, int)
-            else:
-                band = np.floor((z - zlo) / paddy_step).astype(int)
+            if bands(sl, m, z, paddy_step if np.isfinite(z).any() and np.nanmax(z) - np.nanmin(z) > 2 * paddy_step
+                     else 1e9):
                 n_terr += 1
-            sub = lab[sl]
-            mi = np.argwhere(m)
-            for b in np.unique(band[ok]):
-                sel = ok & (band == b)
-                if sel.sum() < 4:
-                    continue
-                extra.append(float(np.median(z[sel])))
-                sub[mi[sel, 0], mi[sel, 1]] = nid
-                nid += 1
     levels = np.concatenate([levels, np.array(extra, float)])
     levels[0] = 0.0
 
@@ -289,8 +338,54 @@ def build_pads(buildings, interp, bbox, barriers=(), roads=None, paddies=(), exc
     wall_near = ndimage.distance_transform_edt(~wall) * cell <= 1.5 if wall.any() else np.zeros(shp, bool)
     groups = len(np.unique(roots[np.unique(lab[padm])]))
     stats = dict(buildings=int(np.isfinite(levels[1:nb + 1]).sum()), skipped=skipped, paddies=len(pdy),
-                 paddy_terraced=n_terr, pads=groups, area=float(padm.sum() * cell * cell))
+                 paddy_terraced=n_terr, pads=groups, area=float(padm.sum() * cell * cell),
+                 parcels=len(pcl), dev_parcels=n_dev, dev_split=n_dev_split)
     log(f"   계단식 대지: 건물 터 {stats['buildings']}동 → 평평한 단 {groups}개 ({stats['area']:,.0f}㎡)"
+        + (f" · 연속지적도 필지 {len(pcl):,}개(개발 필지 {n_dev}개, 그중 여러 단 {n_dev_split}개)" if pcl else "")
         + (f" · 논 {len(pdy)}필(다랑이 {n_terr}필)" if pdy else "")
         + (f" · 큰 비탈에 걸친 건물 {skipped}동은 원래 지형" if skipped else ""))
     return PadField(x0, y1, cell, L, dist, near, wall_near, road | excl, max_ramp, slope, stats)
+
+
+def load_parcels(path, bbox, crs_wkt, margin=50.0):
+    """연속지적도 SHP(폴더·zip·.shp)를 읽어 모델 좌표로. 반환: [(면, 지목 한 글자)]"""
+    import glob
+    import os
+    import tempfile
+    import zipfile
+
+    import shapefile
+    from pyproj import CRS, Transformer
+    from shapely.geometry import box, shape
+    from shapely.ops import transform
+    from shapely.validation import make_valid
+    if str(path).lower().endswith(".zip"):
+        tmp = tempfile.mkdtemp(prefix="parcels_")
+        with zipfile.ZipFile(path) as z:
+            z.extractall(tmp)
+        path = tmp
+    shps = [path] if str(path).lower().endswith(".shp") else glob.glob(os.path.join(path, "**", "*.shp"), recursive=True)
+    clip = box(*bbox).buffer(margin)
+    out = []
+    for fn in shps:
+        prj = fn[:-4] + ".prj"
+        src = CRS(open(prj, encoding="utf-8", errors="replace").read()) if os.path.exists(prj) else CRS.from_epsg(5186)
+        tr = Transformer.from_crs(src, CRS(crs_wkt), always_xy=True)
+        inv = Transformer.from_crs(CRS(crs_wkt), src, always_xy=True)
+        xs, ys = inv.transform([clip.bounds[0], clip.bounds[2]] * 2, [clip.bounds[1]] * 2 + [clip.bounds[3]] * 2)
+        q = (min(xs), min(ys), max(xs), max(ys))
+        for enc in ("cp949", "utf-8"):
+            got = []
+            try:
+                r = shapefile.Reader(fn, encoding=enc)
+                names = [f[0].upper() for f in r.fields[1:]]
+                ji = next((i for i, n in enumerate(names) if n in ("JIBUN", "지번", "A5")), None)
+                for sr in r.iterShapeRecords(bbox=q):
+                    g = make_valid(transform(lambda x, y, z=None: tr.transform(x, y), shape(sr.shape.__geo_interface__)))
+                    if g.intersects(clip):
+                        got.append((g, jimok(sr.record[ji]) if ji is not None else ""))
+            except UnicodeDecodeError:
+                continue
+            out += got
+            break
+    return out

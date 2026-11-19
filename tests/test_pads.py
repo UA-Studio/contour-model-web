@@ -65,3 +65,24 @@ def test_제외_구역에는_터를_만들지_않음():
     b = box(40, 60, 60, 75)
     P = build_pads([b], slope, bbox, exclude=box(30, 50, 70, 90), log=lambda *a: None)
     assert P is None or P.stats["buildings"] == 0
+
+
+def test_필지_기준():
+    """개발 필지(대)는 통째로 한 단, 필지 경계가 단의 경계, 임야 필지는 그대로."""
+    bbox = (0, 0, 200, 200)
+    lot = box(30, 50, 70, 70)              # 대지 (남북 20m → 원래 높이 차 2m)
+    lot2 = box(30, 70, 70, 90)             # 위쪽 대지
+    forest = box(100, 50, 160, 150)        # 임야
+    b = box(40, 55, 55, 62)
+    P = build_pads([b], slope, bbox, parcels=[(lot, "대"), (lot2, "대"), (forest, "임")], log=lambda *a: None)
+    assert P.stats["dev_parcels"] == 2
+    f = P.wrap(slope)
+    z = [_z(f, x, y) for x in (33, 50, 67) for y in (52, 60, 68)]
+    assert np.ptp(z) < 1e-6                  # 필지 하나 = 한 단 (건물 밖 마당 끝까지)
+    assert _z(f, 50, 85) - z[0] > 1.0        # 위 필지는 다른 단
+    assert abs(_z(f, 130, 100) - slope(np.array([[130, 100]]))[0]) < 1e-9   # 임야는 원래 지형
+
+
+def test_지목():
+    from contour_ai.pads import jimok
+    assert jimok("556-118대") == "대" and jimok("산12임") == "임" and jimok("12-3") == ""
