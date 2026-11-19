@@ -50,8 +50,52 @@ QUEUE = []                     # 기다리는 작업 (서버 모드)
 QCOND = threading.Condition()
 
 
+class _Sources(dict):
+    """넣은 수치지도 목록. 메모리에 없으면(서버가 새 판 배포·쉬었다 깨어남으로 다시 켜진 뒤) 디스크의 기록에서 되살린다."""
+
+    def __init__(self, uploads):
+        super().__init__()
+        self.uploads = uploads
+
+    def _load(self, sid):
+        if not sid or not isinstance(sid, str) or "/" in sid or "\\" in sid or sid.startswith("."):
+            return None
+        fn = os.path.join(self.uploads, sid, "_source.json")
+        try:
+            with open(fn, encoding="utf-8") as f:
+                src = json.load(f)
+        except (OSError, ValueError):
+            return None
+        if not os.path.isdir(src.get("folder") or ""):
+            return None
+        dict.__setitem__(self, sid, src)
+        return src
+
+    def __setitem__(self, sid, src):
+        super().__setitem__(sid, src)
+        try:
+            with open(os.path.join(src["work"], "_source.json"), "w", encoding="utf-8") as f:
+                json.dump(src, f, ensure_ascii=False)
+        except (OSError, KeyError, TypeError):
+            pass
+
+    def get(self, sid, default=None):
+        v = super().get(sid) if isinstance(sid, str) else None
+        return v if v is not None else (self._load(sid) or default)
+
+    def __getitem__(self, sid):
+        v = self.get(sid)
+        if v is None:
+            raise KeyError(sid)
+        return v
+
+    def __contains__(self, sid):
+        return self.get(sid) is not None
+
+
 def _new_session(sid, home):
-    return dict(sid=sid, home=home, uploads=os.path.join(home, "_입력"), state={"job": None}, sources={},
+    uploads = os.path.join(home, "_입력")
+    return dict(sid=sid, home=home, uploads=uploads, state={"job": None}, sources=_Sources(uploads),
                 at=time.time())
 
 
