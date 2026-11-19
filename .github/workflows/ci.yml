@@ -87,6 +87,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Docker 이미지 만들기
         run: docker build -t contour-model-web:test .
+      - name: 이미지 안에서 모델 만들기 라이브러리 불러오기
+        run: docker run --rm contour-model-web:test python -c "import rasterio, rhino3dm, manifold3d, scipy, shapely, pyproj, ezdxf, trimesh, matplotlib; import contour_ai.pipeline, contour_ai.contour_model; print('ok')"
       - name: 이미지 안에서 서버 켜 보기
         run: |
           docker run -d --name contour-test -p 8080:8080 -e CONTOUR_DATA=/tmp/data contour-model-web:test
