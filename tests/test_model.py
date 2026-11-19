@@ -63,3 +63,12 @@ def test_대지_경계와_레벨(site_model):
     m = rhino3dm.File3dm.Read(str(out / "model.3dm"))
     layers = [l.FullPath for l in m.Layers]
     assert any(l.startswith("대지") for l in layers), layers[:30]
+
+
+def test_계단식_대지(basic_model):
+    """가짜 도엽의 건물 터·옹벽·논이 평평한 단으로 들어갔는지 (기본으로 켜짐)."""
+    _, s = basic_model
+    p = s.get("pads")
+    assert p, "계단식 대지 요약이 없음"
+    assert p["buildings"] > 50 and p["pads"] > 10
+    assert p["paddies"] >= 1

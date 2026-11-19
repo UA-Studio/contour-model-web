@@ -483,6 +483,7 @@ def start_job(q):
                       aerial_file=(q.get("aerial_file") or "").strip().strip('"') or None,
                       site_address=(q.get("site_address") or "").strip() or None,
                       site_file=(q.get("site_file") or "").strip().strip('"') or None,
+                      pads=bool(q.get("pads", True)),
                       site_ring=q.get("site_ring") or None, site_clear=bool(q.get("site_clear")), site_keep_terrain=bool(q.get("site_keep_terrain")),
                       lights=bool(q.get("lights", True)), facade=bool(q.get("facade", True)),
                       detail=int(q.get("detail") or 3), structures=bool(q.get("structures", True)),
