@@ -220,24 +220,39 @@ def as_polys(g):
     return [p for p in getattr(g, "geoms", []) if isinstance(p, Polygon)]
 
 
-def chaikin(coords, n=2):
-    """닫힌 링을 Chaikin 방식으로 n번 깎아 부드러운 곡선으로."""
-    pts = np.asarray(coords)[:-1]
+def chaikin(coords, n=2, bbox=None, tol=1e-6):
+    """닫힌 링을 Chaikin 방식으로 n번 깎아 부드러운 곡선으로.
+
+    bbox 를 주면 모델 테두리 위의 점은 움직이지 않는다. 테두리를 따라가는 긴 변의 끝(모델 모서리)을
+    깎으면 변 길이의 1/4 씩 큰 삼각형이 잘려 나가 계단판 모서리가 비었다(2026-11-19 사용자 신고)."""
+    pts = np.asarray(coords, float)[:-1, :2]
     for _ in range(n):
         if len(pts) < 3:
             break
         nxt = np.roll(pts, -1, axis=0)
-        pts = np.column_stack([0.75 * pts + 0.25 * nxt, 0.25 * pts + 0.75 * nxt]).reshape(-1, 2)
+        q, r = 0.75 * pts + 0.25 * nxt, 0.25 * pts + 0.75 * nxt
+        if bbox is not None:
+            eps = tol
+            pin = ((np.abs(pts[:, 0] - bbox[0]) < eps) | (np.abs(pts[:, 0] - bbox[2]) < eps) |
+                   (np.abs(pts[:, 1] - bbox[1]) < eps) | (np.abs(pts[:, 1] - bbox[3]) < eps))
+            q[pin] = pts[pin]
+            pin_n = np.roll(pin, -1)
+            r[pin_n] = nxt[pin_n]
+        pts = np.column_stack([q, r]).reshape(-1, 2)
+        keep = np.r_[True, np.any(np.abs(np.diff(pts, axis=0)) > 1e-9, axis=1)]
+        pts = pts[keep]
+        if len(pts) > 1 and np.allclose(pts[0], pts[-1]):
+            pts = pts[:-1]
     return np.vstack([pts, pts[:1]])
 
 
-def smooth_poly(g, n=2):
+def smooth_poly(g, n=2, bbox=None, tol=1e-6):
     out = []
     for p in as_polys(g):
         if len(p.exterior.coords) < 4:
             continue
-        holes = [chaikin(h.coords, n) for h in p.interiors if len(h.coords) >= 4]
-        out.append(make_valid(Polygon(chaikin(p.exterior.coords, n), holes)))
+        holes = [chaikin(h.coords, n, bbox, tol) for h in p.interiors if len(h.coords) >= 4]
+        out.append(make_valid(Polygon(chaikin(p.exterior.coords, n, bbox, tol), holes)))
     return unary_union(out) if out else g
 
 
@@ -274,6 +289,8 @@ def terrace_regions(contours, interp, bbox, interval, min_area, cell=0.5, smooth
     top = math.floor(Z.max() / interval) * interval
     gen = contourpy.contour_generator(X, Y, Z, fill_type="OuterOffset")
     regions = {base: clip}
+    edge_w = 2 * smooth + cell
+    edge_band = clip.difference(clip.buffer(-edge_w, join_style="mitre"))
     lv = base + interval
     while lv <= top + 1e-6:
         pts, offs = gen.filled(lv, np.inf)
@@ -283,10 +300,14 @@ def terrace_regions(contours, interp, bbox, interval, min_area, cell=0.5, smooth
             if len(rings[0]) >= 4:
                 polys.append(Polygon(rings[0], [r for r in rings[1:] if len(r) >= 4]))
         g = unary_union([make_valid(p) for p in polys]).intersection(clip)
+        raw = g
         # 격자 계단 제거 + 레이저로 자르기 어려운 가는 부분·작은 조각 제거
         g = g.buffer(smooth, join_style="round").buffer(-2 * smooth, join_style="round") \
              .buffer(smooth, join_style="round").intersection(clip)
-        g = smooth_poly(g.simplify(cell * 0.5), chaikin_n).intersection(clip)
+        # 모델 테두리 가까운 점은 다듬지 않고, 테두리 띠는 다듬기 전 윤곽으로 되돌린다.
+        # (판이 테두리를 따라 길게 닿으면 다듬기가 모델 모서리를 큰 삼각형으로 깎아 내던 것)
+        g = smooth_poly(g.simplify(cell * 0.5), chaikin_n, bbox, tol=edge_w).intersection(clip)
+        g = unary_union([g, raw.intersection(edge_band)]).intersection(clip)
         g = unary_union([p for p in as_polys(g) if p.area >= min_area])
         if not g.is_empty:
             # 윗판은 반드시 아랫판 안에 있어야 쌓을 수 있다
