@@ -1137,6 +1137,12 @@ let lastRun=null;
 setInterval(()=>{if(!lastRun||$('runp').hidden||!sub||!sub.est) return; runView(lastRun[0],lastRun[1],lastRun[2]+(Date.now()-lastRun[3])/1000);},500);
 async function poll(){
   const j=await (await fetch('/status?since='+nLog+'&ev='+nEv)).json();
+  if(j.running===false&&!j.done){   // 서버가 다시 켜져(새 판 배포 등) 만들던 작업이 사라짐: 0초에서 멈춘 채 기다리지 않게
+    lastRun=null; clearInterval(timer); $('stop').disabled=false; $('stop').textContent='멈추기'; live.finish(false); mode('setup');
+    showErr({what:'만들던 작업이 끊겼어요.',why:'만드는 도중에 서버가 다시 켜졌어요 (새 판 배포 등). 그동안 만든 것은 남지 않아요.',
+      how:lastBody?'설정은 그대로 두고 다시 만들기를 눌러 주세요.':'만들기를 한 번 더 눌러 주세요. 수치지도가 안 보이면 01번 칸에 다시 넣어 주세요.',
+      acts:lastBody?[['다시 만들기',()=>{hideErr();start(lastBody);},1]]:[]});
+    return;}
   if(j.events){live.push(j.events); nEv=j.ne;
     for(const ev of j.events) if(ev.t==='sub') sub={...ev,seen:Date.now()}; }
   if(j.lines&&j.lines.length){$('plog').textContent+=j.lines.join('\n')+'\n'; nLog=j.n; $('plog').scrollTop=1e9;}
