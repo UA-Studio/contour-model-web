@@ -1,0 +1,96 @@
+name: 자동 시험
+# 커밋을 올릴 때마다 Windows 와 Linux 에서: 설치 → 가짜 도엽으로 모델 만들기 → 결과 파일 확인 → 서버 화면 확인.
+# 확인 그림과 결과 파일은 각 실행 화면 아래 'Artifacts' 에서 내려받을 수 있습니다.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: 시험 (${{ matrix.os }})
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      MPLBACKEND: Agg
+      CONTOUR_TEST_OUT: ${{ github.workspace }}/시험결과
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements-server.txt
+      - name: 설치
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-server.txt pytest
+      - name: 설치 확인 (라이브러리 불러오기)
+        run: python -c "import contour_ai, rhino3dm, rasterio, ezdxf, trimesh, manifold3d, scipy, shapely, pyproj; print('콘타 모델', contour_ai.__version__)"
+      - name: 시험 (가짜 도엽 모델 + 서버 화면)
+        run: python -m pytest tests -v --junitxml=시험결과/시험결과.xml
+      - name: 확인 그림 만들기
+        if: always()
+        run: python tests/render_previews.py
+      - name: 시험 요약
+        if: always()
+        shell: python
+        run: |
+          import json, os, pathlib
+          r = pathlib.Path(os.environ["CONTOUR_TEST_OUT"])
+          lines = [f"### {os.environ['RUNNER_OS']} 시험 결과", ""]
+          for name in ("기본모델", "대지모델"):
+              p = r / name / "summary.json"
+              if p.exists():
+                  s = json.loads(p.read_text(encoding="utf-8"))
+                  lines.append(f"- {name}: 건물 {s.get('buildings')} · 등고선 {s.get('contours')} · 나무 {s.get('trees')} · {s.get('seconds')}초")
+              else:
+                  lines.append(f"- {name}: 결과 없음")
+          lines.append("")
+          lines.append("확인 그림은 아래 Artifacts 의 '확인그림' 에 있습니다.")
+          open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8").write("\n".join(lines) + "\n")
+      - name: 확인 그림 올리기
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 확인그림-${{ runner.os }}
+          path: 시험결과/확인그림/
+          retention-days: 30
+      - name: 결과 파일 올리기 (Rhino·레이저·STL)
+        if: always() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: 시험결과-모델파일
+          path: |
+            시험결과/기본모델/
+            시험결과/대지모델/
+            시험결과/시험결과.xml
+          retention-days: 14
+
+  docker:
+    name: 서버 이미지 만들기 (배포 전 확인)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Docker 이미지 만들기
+        run: docker build -t contour-model-web:test .
+      - name: 이미지 안에서 서버 켜 보기
+        run: |
+          docker run -d --name contour-test -p 8080:8080 -e CONTOUR_DATA=/tmp/data contour-model-web:test
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8080/app >/dev/null && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8080/ | head -c 200; echo
+          curl -fsS http://127.0.0.1:8080/app >/dev/null
+          docker logs contour-test

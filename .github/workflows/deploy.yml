@@ -1,10 +1,14 @@
 name: fly.io 에 배포
+# main 에 올린 커밋의 '자동 시험'이 모두 통과해야만 배포합니다.
 on:
-  push:
+  workflow_run:
+    workflows: [자동 시험]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 jobs:
   deploy:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     concurrency: deploy
     env:
@@ -18,6 +22,8 @@ jobs:
       SAFEMAP_KEY: ${{ secrets.SAFEMAP_KEY }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: superfly/flyctl-actions/setup-flyctl@master
       - name: 배포
         run: |
