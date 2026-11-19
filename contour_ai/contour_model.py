@@ -132,10 +132,18 @@ def load_shp(folder, bbox):
             for ls in getattr(g, "geoms", [g]):
                 data["breaks"].append((LineString([c[:2] for c in ls.coords]), str(rec.get("종류") or "옹벽"),
                                        str(rec.get("상하구분") or ""), h))
+    # 논: 계단식 대지에서 한 필씩 평평하게 (비탈의 큰 논은 다랑이로)
+    for g, rec in read("N3A_D0010000"):
+        if str(rec.get("구분") or "").strip() == "논":
+            g = make_valid(g)
+            if g.intersects(clip.buffer(20)):
+                data["paddies"].append(g)
     for name, kind in [("N3A_A0010000", "roads"), ("N3A_A0033320", "roads"),
                        ("N3L_B0020000", "walls"), ("N3A_E0010001", "water")]:
         for g, rec in read(name):
             if g.intersects(clip):
+                if kind == "roads" and g.geom_type.endswith("Polygon"):
+                    data["road_areas"].append(make_valid(g))     # 계단식 대지: 길 면은 터가 넘지 않는다
                 line = g.boundary if g.geom_type.endswith("Polygon") else g
                 data[kind].append(line.intersection(clip))
     return data
@@ -233,7 +241,8 @@ def smooth_poly(g, n=2):
     return unary_union(out) if out else g
 
 
-def terrace_regions(contours, interp, bbox, interval, min_area, cell=0.5, smooth=1.5, sigma=4.0, chaikin_n=3, keep=None):
+def terrace_regions(contours, interp, bbox, interval, min_area, cell=0.5, smooth=1.5, sigma=4.0, chaikin_n=3, keep=None,
+                    keep_w=None):
     """보간한 지형면을 레벨마다 잘라 계단 영역을 만든다.
 
     수치지도 등고선은 건물·도로에서 끊겨 있어 그대로 폐합할 수 없으므로,
@@ -251,14 +260,16 @@ def terrace_regions(contours, interp, bbox, interval, min_area, cell=0.5, smooth
         # 끊긴 등고선 사이 TIN의 각진 면이 톱니처럼 보이지 않도록 지형면을 살짝 고르게
         from scipy.ndimage import gaussian_filter
         Zs = gaussian_filter(Z, sigma / cell, mode="nearest")
+        w = np.zeros(X.shape)
         if keep is not None:
             # 사업지 레벨로 다시 만든 대지 안은 고르게 펴지 않는다 (단·옹벽 높이가 그대로 판이 되게)
             import shapely
             d = shapely.distance(keep, shapely.points(X.ravel(), Y.ravel())).reshape(X.shape)
             w = np.clip(1.0 - d / 6.0, 0.0, 1.0)
-            Z = w * Z + (1 - w) * Zs
-        else:
-            Z = Zs
+        if keep_w is not None:
+            # 계단식 대지(건물 터·논)도 평평한 단과 옹벽이 뭉개지지 않게
+            w = np.maximum(w, keep_w(X, Y))
+        Z = w * Z + (1 - w) * Zs if w.any() else Zs
     base = math.floor(Z.min() / interval) * interval
     top = math.floor(Z.max() / interval) * interval
     gen = contourpy.contour_generator(X, Y, Z, fill_type="OuterOffset")
@@ -1590,7 +1601,7 @@ def write_laser(out_dir, regions, masses, draped, origin, scale, areas=(), trees
 
 
 # ---------------------------------------------------------------- 메인
-DEFAULTS = dict(site=None, site_clear=False, site_keep_terrain=False, dem=None, terrain_fit="smooth", breaklines=False, scale=1000, interval=5, min_area=None, floor_height=FLOOR_HEIGHT, sigma=4.0, smooth=1.5,
+DEFAULTS = dict(site=None, site_clear=False, site_keep_terrain=False, dem=None, terrain_fit="smooth", breaklines=False, pads=True, scale=1000, interval=5, min_area=None, floor_height=FLOOR_HEIGHT, sigma=4.0, smooth=1.5,
                 terrain="combo", no_trees=False, ndvi=None, aerial=None, crs_wkt=None, vworld_key=None,
                 vworld_domain="", data_key=None, cache_dir=None, tree_spacing=8.0, tree_hole=1.0,
                 road_thickness=ROAD_THICKNESS, sketchup=True, green=True, lights=True, light_files=(),
@@ -1851,6 +1862,26 @@ def build(src, bbox, out="out", log=print, **kw):
         from .dem import merged_interpolator
         interp = merged_interpolator(a.dem, interp)
         sigma = min(a.sigma, 1.0)
+    # 계단식 대지: 비탈의 건물 터·논을 평평한 단으로, 단 사이는 옹벽처럼 (수치지도 건물·옹벽·담·길·논)
+    pads = None
+    if a.pads and (data.get("buildings") or data.get("paddies")):
+        from .pads import build_pads
+        site_p = (a.site or {}).get("poly")
+        uses_site = site_p is not None and not getattr(a, "site_keep_terrain", False) and (
+            a.site_clear or a.site.get("levels") or a.site.get("plates") or a.site.get("keep"))
+        try:
+            bl = [b[0] for b in data["buildings"]]
+            barriers = [b[0] for b in data.get("breaks", ())] + list(data.get("walls", ()))
+            if not os.path.isdir(a.src):
+                barriers += list(data.get("roads", ()))      # DXF: 길은 선뿐이라 선을 막는 선으로
+            roads_u = unary_union(data["road_areas"]) if data.get("road_areas") else None
+            pads = build_pads(bl, interp, bbox, barriers=barriers, roads=roads_u, paddies=data.get("paddies", ()),
+                              exclude=site_p if uses_site else None, log=log)
+        except Exception as e:
+            log(f"   (계단식 대지를 만들지 못함: {type(e).__name__}: {e})")
+            pads = None
+        if pads is not None:
+            interp = pads.wrap(interp)
     # 사업지 도면의 레벨: 대지 안 지형을 그 레벨로 다시 만들고, 경계 밖 15m 까지 수치지도 지형과 섞는다
     level_site = None
     orig_interp = interp      # 대지 분석(경사·절토·성토)에서 '원래 지형'으로 쓴다
@@ -1883,7 +1914,8 @@ def build(src, bbox, out="out", log=print, **kw):
     if pg.live:
         _live_tin(pg, interp, bbox, origin)
     regions, zmin = terrace_regions(data["contours"], interp, bbox, a.interval, min_area,
-                                    smooth=smooth, sigma=sigma, chaikin_n=chaikin_n, keep=level_site)
+                                    smooth=smooth, sigma=sigma, chaikin_n=chaikin_n, keep=level_site,
+                                    keep_w=pads.keep_weight if pads is not None else None)
     lv = list(regions)
     pg.step("2.4", x=f"EL {lv[0]:g}부터 {a.interval:g}m마다 {len(lv)}단")
     # 판이 많으면(예: 1m 간격 수백 장) 화면 실황은 최대 30묶음으로 나눠 보낸다.
@@ -2118,6 +2150,10 @@ def build(src, bbox, out="out", log=print, **kw):
             d = shapely.distance(level_site, shapely.points(X.ravel(), Y.ravel())).reshape(X.shape)
             w = np.clip(1.0 - d / 15.0, 0.0, 1.0)
             H = w * Hl + (1 - w) * H
+        if pads is not None:
+            # 경사면에도 같은 평평한 단: 터 안은 터 높이, 둘레는 옹벽(거의 수직)·1:1 비탈로 경사면과 잇는다.
+            # 대지 레벨을 쓰는 대지 안은 터를 만들지 않았으므로 그대로다.
+            H = pads.apply(np.column_stack([X.ravel(), Y.ravel()]), H.ravel()).reshape(X.shape)
         pg.step("6.2")
         H = building_pads(X, Y, H, masses)
         print_field = (X, Y, H, B)
@@ -2259,6 +2295,7 @@ def build(src, bbox, out="out", log=print, **kw):
                                               for u in {m.get("use") for m in masses}}.items(),
                                              key=lambda kv: -kv[1])),
                    building_register=register, site=site_summary,
+                   pads=pads.stats if pads is not None else None,
                    buildings_by_decade=dict(sorted({f"{m['year'] // 10 * 10}년대": sum(
                        1 for n in masses if n.get("year", 0) // 10 == m["year"] // 10)
                        for m in masses if m.get("year")}.items())),

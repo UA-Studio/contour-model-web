@@ -79,6 +79,12 @@ for ln, n, wd in cls:
     w.line([list(ln.coords)]); w.record(n, wd, "무", "무")
 w.close(); prj("N3L_A0020000")
 
+# 논: 가운데 북쪽 한 블록은 건물 대신 논 (계단식 대지 시험: 한 필씩 평평하게, 비탈의 큰 논은 다랑이로)
+PADDY_ZONE = box(X0 + 229, Y0 + 314, X0 + 286, Y0 + 439)
+paddies = [box(X0 + 231, Y0 + 316 + k * 30.5, X0 + 284, Y0 + 316 + k * 30.5 + 29) for k in range(3)] + \
+          [box(X0 + 231, Y0 + 407.5, X0 + 284, Y0 + 437)]
+polyw("N3A_D0010000", paddies, [("구분", "C", 10), ("UFID", "C", 20)], [("논", f"P{i}") for i in range(4)])
+
 # 건물: 블록 안에 줄지어
 blocked = unary_union([road, walk]).buffer(2.5)
 B, R = [], []
@@ -90,10 +96,22 @@ for bx in np.arange(X0 + 6, X0 + W - 20, 19):
         b = box(bx, by, bx + w_, by + d_)
         if b.intersects(blocked) or rng.uniform() < 0.12: continue
         if QUARRY and np.hypot(bx - X0 - 380, (by - Y0 - 400) * 1.3) < 160: continue
+        if b.intersects(PADDY_ZONE): continue
         fl = int(rng.choice([1, 2, 2, 3, 3, 4, 5, 7, 12]))
         B.append(b); R.append((f"B{i}", kinds[i % 4], fl, f"시험건물{i}" if i % 9 == 0 else "", uses[i % 4])); i += 1
+# 옹벽: 남서쪽 블록의 건물 앞(남쪽 3m)에 높이 2m 옹벽 (계단식 대지 시험: 옹벽이 터의 경계)
+w = writer("N3L_F0040000", shapefile.POLYLINE)
+for f in (("종류", "C", 10), ("상하구분", "C", 10), ("연장", "N", 10, 2), ("높이", "N", 8, 2), ("재질", "C", 10), ("UFID", "C", 20)):
+    w.field(*f)
+nw = 0
+for b in B:
+    x0_, y0_, x1_, y1_ = b.bounds
+    if X0 + 155 < x0_ < X0 + 295 and Y0 + 155 < y0_ < Y0 + 295:
+        ln = [(x0_ - 2, y0_ - 3), (x1_ + 2, y0_ - 3)]
+        w.line([ln]); w.record("옹벽", "상단", x1_ - x0_ + 4, 2.0, "콘크리트", f"W{nw}"); nw += 1
+w.close(); prj("N3L_F0040000")
 polyw("N3A_B0010000", B, [("UFID", "C", 20), ("종류", "C", 20), ("층수", "N", 4, 0), ("명칭", "C", 40), ("용도", "C", 30)], R)
-print("건물", len(B), "차도면", len(rp), "보도면", len(wp))
+print("건물", len(B), "차도면", len(rp), "보도면", len(wp), "옹벽", nw, "논", len(paddies))
 z = zipfile.ZipFile(sys.argv[2], "w", zipfile.ZIP_DEFLATED)
 for f in sorted(os.listdir(out)): z.write(os.path.join(out, f), "가짜도엽_376082055/" + f)
 z.close()

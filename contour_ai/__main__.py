@@ -38,6 +38,7 @@ def main():
     m.add_argument("--site-file", help="대지 경계 파일(DXF 닫힌 폴리선, SHP·zip, GeoJSON). 모델에 경계를 넣고 대지를 가운데로 잡음")
     m.add_argument("--dem", nargs="*", default=[], help="수치표고모델(DEM) 파일·zip·폴더. 5m 이하 격자면 등고선 대신 이 높이로 지형을 만듦")
     m.add_argument("--exact-terrain", action="store_true", help="등고선 그대로: 지형 다듬기를 줄여 절토면·옹벽 같은 꺾임을 살림")
+    m.add_argument("--no-pads", action="store_true", help="계단식 대지 끄기: 비탈의 건물 터·논을 평평한 단으로 만들지 않고 등고선 보간 그대로")
     m.add_argument("--site-clear", action="store_true", help="대지 위의 건물·길·나무·시설물을 빼고 빈 터로")
     m.add_argument("--site-keep-terrain", action="store_true", help="대지 안 원래 지형 유지: 도면 레벨을 쓰지 않고 경계선만 지형에 눌러 표시")
     m.add_argument("--aerial", help="좌표가 들어 있는 항공사진 파일(GeoTIFF 등). 브이월드 대신 이 영상으로 가로수를 찾음")
@@ -66,7 +67,7 @@ def main():
     s = run(a.source if len(a.source) > 1 else a.source[0], a.out, name=a.name, latlon=a.latlon, xy=a.xy, size=size, green=not a.no_green,
             year=a.year, scale=a.scale, interval=a.interval, terrain=a.terrain, floor_height=a.floor_height,
             no_trees=a.no_trees, tree_hole=a.tree_hole, road_thickness=a.road_thickness,
-            sketchup=not a.no_sketchup, vworld_key=a.vworld_key, vworld_domain=a.vworld_domain, data_key=a.data_key, site_address=a.site, site_file=a.site_file, site_clear=a.site_clear, site_keep_terrain=a.site_keep_terrain, dem_files=a.dem or None, terrain_fit="exact" if a.exact_terrain else "smooth",
+            sketchup=not a.no_sketchup, vworld_key=a.vworld_key, vworld_domain=a.vworld_domain, data_key=a.data_key, site_address=a.site, site_file=a.site_file, site_clear=a.site_clear, site_keep_terrain=a.site_keep_terrain, dem_files=a.dem or None, terrain_fit="exact" if a.exact_terrain else "smooth", pads=not a.no_pads,
             aerial_file=a.aerial, lights=not a.no_lights, facade=not a.no_facade, detail=a.detail, structures=not a.no_structures, facade_radius=a.facade_radius, light_files=tuple(a.lights_file),
             road_detail=not a.no_road_detail, road_files=tuple(a.road_files),
             seoul_key=a.seoul_key, safemap_key=a.safemap_key, seoul_service=a.seoul_service, safemap_layer=a.safemap_layer,

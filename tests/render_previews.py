@@ -5,6 +5,7 @@
   - 3D_기본모델.png, 3D_대지모델.png : 3D 프린트 STL 을 비스듬히 본 그림
   - 평면_기본모델.png, 평면_대지모델.png : 프로그램이 그린 평면 확인 그림
   - 레이저판_기본모델.png : 레이저 재단 판 전체
+  - 계단식대지_비교.png : 같은 자리의 지형을 '지금'과 '계단식 대지'로 나란히
   - 모음.png : 위 그림을 한 장에
 """
 import os
@@ -130,6 +131,15 @@ def main():
     if (res / "기본모델" / "laser").exists():
         render_laser(res / "기본모델" / "laser", dst / "레이저판_기본모델.png", "레이저 재단 판 (기본모델)")
         made.append(dst / "레이저판_기본모델.png")
+    shp = res / "_입력" / "shp"
+    if shp.exists():
+        # 계단식 대지: 같은 자리를 '지금'과 '계단식 대지'로 나란히 (가짜 도엽의 옹벽 블록 + 논)
+        import subprocess
+        png = dst / "계단식대지_비교.png"
+        r = subprocess.run([sys.executable, str(ROOT / "docs" / "개발용_시험스크립트" / "pads_check.py"),
+                            str(shp), "201520", "554930", "110", str(png)])
+        if r.returncode == 0 and png.exists():
+            made.append(png)
     if made:
         contact_sheet(made, dst / "모음.png")
     print("확인 그림:", ", ".join(p.name for p in made))

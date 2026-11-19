@@ -539,6 +539,7 @@ details.ppmap>summary{padding:12px 18px 4px;font-size:12px;color:var(--link);cur
 
     <div class="grp">넣을 것</div>
     <ul class="tg">
+      <li title="비탈에 들어선 건물마다 평평한 터를 만들고(옹벽·담·길로 둘러싸인 마당까지), 터 사이는 옹벽처럼 끊습니다. 논은 한 필씩 평평하게, 비탈의 큰 논은 다랑이로. 수치지도 건물·옹벽·석축·절토·성토·담장·논 자료를 씁니다"><label><span>계단식 대지<small>건물 터 · 옹벽 · 다랑이 논</small></span><input type="checkbox" class="sw" id="pads" checked></label></li>
       <li title="수치지도 식생 면(수림지·조림지·과수원) + 항공사진 수관(브이월드 키가 있을 때) + 위성영상(Sentinel-2)을 겹쳐 산지 숲과 조경 녹지를 찾습니다. 잔디·논밭은 뺍니다"><label><span>숲·녹지 나무<small>식생 + 위성</small></span><input type="checkbox" class="sw" id="green" checked></label></li>
       <li title="서울은 서울시 가로수 대장(2026), 그 밖의 85개 시군구는 산림청 가로수 현황(2025)의 실제 위치·수종(내장). 대장에 없는 나무는 항공사진에서 확인된 것만 보충합니다"><label><span>가로수<small>가로수 대장 (내장)</small></span><input type="checkbox" class="sw" id="street" checked></label></li>
       <li title="위치 자료 파일이나 수치지도에 있으면 그 위치로, 없으면 도로폭에 따라 보통 간격으로 추정 배치합니다(레이어 '가로등::추정')"><label><span>가로등·보안등<small>자료 파일 → 수치지도 → 추정</small></span><input type="checkbox" class="sw" id="lights" checked></label></li>
@@ -1073,7 +1074,7 @@ function collect(){
   // 결과 폴더 이름: 대지 이름 → 가운데 지명 → 도엽 번호
   const label=(site&&site.label?String(site.label).replace(/\.[^.]+$/,''):'')||$('place').value||src.label||src.file.replace(/\.zip$/i,'');
   return {source:src.id, xy:center, w:+$('w').value, h:+$('h').value, scale:+$('scale').value, interval:+$('interval').value,
-    terrain:$('terrain').value, terrain_fit:(document.querySelector('#fitseg button.on')||{}).dataset?.v||'smooth', green:$('green').checked, street_trees:$('street').checked, floor_height:+$('floor').value,
+    terrain:$('terrain').value, terrain_fit:(document.querySelector('#fitseg button.on')||{}).dataset?.v||'smooth', green:$('green').checked, pads:$('pads').checked, street_trees:$('street').checked, floor_height:+$('floor').value,
     tree_hole:+$('hole').value, vworld_key:$('vkey').value||$('vkey2').value, data_key:$('dkey').value, vworld_domain:$('vdomain').value, aerial_file:$('afile').value, lights:$('lights').checked, detail:+$('detail').value, facade_radius:$('fradius').value?+$('fradius').value:null, structures:$('structs').checked, light_file:$('lfile').value, road_detail:$('roadx').checked, road_files:$('rfile').value, hd_dir:$('hddir').value.trim(), dem_files:$('demfile').value.trim()||null, seoul_key:$('skey').value, safemap_key:$('smkey').value, seoul_service:$('ssvc').value, safemap_layer:$('smlayer').value, safemap_light_layer:$('smlight').value, seoul_code:$('scode').value, site_address:(site&&site.kind==='addr'||$('lawbody').innerHTML)?($('saddr').value.trim()||null):null, site_file:site&&site.kind==='file'?site.path:null, site_ring:site&&site.kind==='draw'?site.ring:null, site_clear:!!site&&$('siteclear').checked, site_keep_terrain:!!site&&$('sitekeep').checked, road_thickness:+$('roadt').value, sketchup:$('skp').checked, year:$('year').value||null, out:$('out').value.trim()||null, label};
 }
 async function start(body){
