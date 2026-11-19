@@ -4,9 +4,9 @@
 
 - 실행: `CONTOUR_SERVER=1 python -m contour_ai serve` (Docker 이미지가 이렇게 실행)
 - 첫 화면 `/` 소개, `/app` 프로그램, `/admin/feedback?token=…` 받은 의견
-- 배포: `main` 에 올리면 GitHub Actions 가 fly.io 에 배포 (`FLY_API_TOKEN` 비밀값 필요)
+- 배포: `main` 에 올린 커밋의 '자동 시험'이 통과하면 GitHub Actions 가 fly.io 에 배포 (`FLY_API_TOKEN` 비밀값 필요). 급할 때는 Actions › 'fly.io 에 배포' › Run workflow 로 직접 실행
 
-## fly.io 비밀값 (`fly secrets set 이름=값`)
+## 비밀값 (GitHub Settings › Secrets and variables › Actions 에 넣으면 배포 때 fly.io 로 옮겨짐)
 | 이름 | 쓰임 |
 |---|---|
 | `CONTOUR_ADMIN_TOKEN` | 받은 의견 화면 비밀번호 |

@@ -1,2 +1,27 @@
 __pycache__/
 *.pyc
+.pytest_cache/
+
+# 시험·실행 결과 (Actions 산출물로만 남김)
+시험결과/
+결과/
+contour_out/
+
+# 재배포 금지 자료·개인 자료는 저장소에 올리지 않습니다.
+# 시험은 tests/make_fake_sheet.py 가 만든 가짜 도엽만 씁니다.
+*.zip
+*.dxf
+*.dwg
+*.shp
+*.shx
+*.dbf
+*.prj
+*.3dm
+*.img
+*.tif
+*.tiff
+*.geojson
+*정밀도로지도*
+*HDMap*
+.env
+*.key

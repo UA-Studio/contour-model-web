@@ -4,3 +4,6 @@ _자료원본
 __pycache__
 .git
 .github
+tests
+docs
+시험결과
