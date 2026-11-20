@@ -32,6 +32,20 @@ class _LazyModule:
 
 
 pipeline = _LazyModule(".pipeline")
+_READY = threading.Event()          # 서버: 무거운 라이브러리를 다 불러왔는가 (내 PC 판은 처음부터 참)
+_READY.set()
+
+
+def _warm_up():
+    """서버가 켜진 뒤 한 줄에서만 무거운 라이브러리를 불러온다. 여러 요청이 동시에 불러오면
+    shapely 가 '반쯤 불러온 모듈' 오류를 낸다(2026-11-20 시험에서 발견) → 다른 요청은 _READY 를 기다린다."""
+    try:
+        from . import pipeline as _p, progress, site, sitefile  # noqa: F401
+        pipeline._mod = _p
+    except Exception:
+        traceback.print_exc()
+    finally:
+        _READY.set()
 
 
 def Progress(*a, **k):
@@ -790,8 +804,12 @@ class Handler(BaseHTTPRequestHandler):
 
     _cookie = None
 
+    _LIGHT = re.compile(r"^/(|about|legal|app|index\.html|config|status|site/.*|vendor/.*|[\w-]+\.js|feedback|admin/feedback)$")
+
     def _begin(self):
         """서버 모드: 쿠키로 방문자를 알아보고 그 사람의 칸을 고른다."""
+        if not _READY.is_set() and not self._LIGHT.match(urlparse(self.path).path):
+            _READY.wait(120)
         self._cookie = None
         if not SERVER:
             _CTX.sess = None
@@ -1195,8 +1213,10 @@ def serve():
     srv.daemon_threads = True
     from . import __version__
     print(f"콘타 모델 공개 서버 v{__version__} :{port}  제한 {LIMITS}  디스크 남은 공간 {_free_mb():.0f}MB", flush=True)
-    # 접속은 바로 받고, 무거운 라이브러리는 뒤에서 미리 불러 둔다 (첫 지도 올리기가 느리지 않게)
-    threading.Thread(target=lambda: pipeline.read_crs, daemon=True).start()
+    # 접속은 바로 받고, 무거운 라이브러리는 뒤에서 한 번만 불러 둔다. 화면·상태 확인은 바로 대답하고
+    # 지도 올리기 같은 무거운 요청만 다 불러올 때까지(몇 초) 기다린다.
+    _READY.clear()
+    threading.Thread(target=_warm_up, daemon=True).start()
     srv.serve_forever()
 
 
