@@ -235,8 +235,8 @@ export function createLive(el) {
       $('hx').textContent = '';
       $('sid').textContent = ''; $('slabel').textContent = st.failed ? '중간에 멈췄습니다' : '모델 완성';
       $('sx').textContent = '';
-      $('what').textContent = st.failed ? '왼쪽 칸이나 기록 탭에서 이유를 확인해 주세요.' : '모든 부품이 채워졌어요. 없음은 이번 설정에서 만들지 않는 부품이에요.';
-      $('why').textContent = st.failed ? '' : '3D 보기 탭에서 최종 모델을 돌려 보거나, 결과 폴더를 열어 확인하세요.';
+      $('what').textContent = st.failed ? (st.reason || '멈춘 이유를 알지 못했어요.') : '모든 부품이 채워졌어요. 없음은 이번 설정에서 만들지 않는 부품이에요.';
+      $('why').textContent = st.failed ? '자세한 기록은 결과 탭 › 기록에 있어요.' : '3D 보기 탭에서 최종 모델을 돌려 보거나, 결과 폴더를 열어 확인하세요.';
     } else if (sub) {
       $('hid').textContent = cur.id; $('hlabel').textContent = sub[0]; $('hx').textContent = cur.x || '';
       $('sid').textContent = cur.id; $('slabel').textContent = sub[0]; $('sx').textContent = cur.x || '';
@@ -302,7 +302,7 @@ export function createLive(el) {
   return {
     reset,
     push(events) { if (events && events.length) { queue.push(...events); pump(); } },
-    finish(ok) { st.pendingFinish = ok ? 'ok' : 'err'; if (!busy) pump(); },
+    finish(ok, reason) { st.pendingFinish = ok ? 'ok' : 'err'; st.reason = reason || ''; if (!busy) pump(); },
     resize: size
   };
 }

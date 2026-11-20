@@ -5,7 +5,6 @@ import argparse
 import json
 import sys
 
-from .pipeline import run
 
 
 def main():
@@ -65,6 +64,7 @@ def main():
     m.add_argument("--no-sketchup", action="store_true", help="스케치업용 파일 생략")
     a = ap.parse_args()
     size = a.size[0] if len(a.size) == 1 else tuple(a.size[:2])
+    from .pipeline import run
     s = run(a.source if len(a.source) > 1 else a.source[0], a.out, name=a.name, latlon=a.latlon, xy=a.xy, size=size, green=not a.no_green,
             year=a.year, scale=a.scale, interval=a.interval, terrain=a.terrain, floor_height=a.floor_height,
             no_trees=a.no_trees, tree_hole=a.tree_hole, road_thickness=a.road_thickness,
