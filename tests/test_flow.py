@@ -107,6 +107,49 @@ def test_사이트_흐름_대지파일_정리_후_두번_다시_만들기(tmp_pa
         # 내려받기
         st, z = _call(base, "/download", cookie)
         assert st == 200 and len(z) > 1000
+        # 6) 서버가 꺼졌다 켜져도(자동 꺼짐·배포) 같은 브라우저는 방금 결과를 내려받는다 (2026-11-20 '결과가 없습니다' 신고)
+        p.terminate(); p.wait(10)
+        p = subprocess.Popen([sys.executable, "-m", "contour_ai", "serve"], cwd=ROOT, env=env)
+        _wait_up(base)
+        st, files = _call(base, "/files", cookie)
+        assert st == 200 and any(f["name"] == "model.3dm" for f in files.get("files", [])), files
+        st, z = _call(base, "/download", cookie)
+        assert st == 200 and len(z) > 1000, "서버를 다시 켠 뒤 결과를 내려받지 못함"
+        # 7) 결과가 정말 없을 때 브라우저로 열면 날것 JSON 대신 안내 화면
+        req = urllib.request.Request(base + "/download", headers={"Accept": "text/html"})
+        try:
+            urllib.request.urlopen(req, timeout=30)
+            raise AssertionError("결과 없는 새 방문자에게 파일을 줌")
+        except urllib.error.HTTPError as e:
+            page = e.read().decode("utf-8")
+            assert e.headers.get("Content-Type", "").startswith("text/html"), e.headers.get("Content-Type")
+            assert "내려받을 결과" in page and 'href="/app"' in page
+    finally:
+        p.terminate(); p.wait(10)
+
+
+def _wait_up(base):
+    for _ in range(400):
+        try:
+            urllib.request.urlopen(base + "/config", timeout=2)
+            return
+        except Exception:
+            time.sleep(0.05)
+    raise AssertionError("서버가 켜지지 않음")
+
+
+def test_방문자_쿠키는_쓰는_동안_끊기지_않음(tmp_path):
+    """쿠키가 처음 들어온 때부터 60분이면 계속 쓰던 사람도 1시간 뒤 새 방문자가 되어 결과를 잃었다."""
+    s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
+    env = dict(os.environ, CONTOUR_SERVER="1", CONTOUR_DATA=str(tmp_path), PORT=str(port), MPLBACKEND="Agg", PYTHONUTF8="1")
+    p = subprocess.Popen([sys.executable, "-m", "contour_ai", "serve"], cwd=ROOT, env=env)
+    base = f"http://127.0.0.1:{port}"
+    try:
+        _wait_up(base)
+        with urllib.request.urlopen(base + "/config", timeout=10) as r:
+            ck = r.headers.get("Set-Cookie")
+        age = int(ck.split("Max-Age=")[1].split(";")[0])
+        assert age >= 7 * 24 * 3600, ck
     finally:
         p.terminate(); p.wait(10)
 
