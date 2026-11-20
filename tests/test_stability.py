@@ -65,9 +65,13 @@ def test_새로_만들면_이전_결과는_지움(app):
     new = os.path.join(s["home"], "모델_1120_0900")
     os.makedirs(old)
     open(os.path.join(old, "model.3dm"), "wb").write(b"x" * 1000)
+    std = os.path.join(s["home"], "대지표준")              # 레이어 정리한 대지 파일: 다시 만들 때 씀
+    os.makedirs(std)
+    open(os.path.join(std, "계획안_표준.dxf"), "w").write("0")
     app._drop_old_results(new)
     assert not os.path.exists(old)
     assert os.path.isdir(s["uploads"]), "올린 수치지도(_입력)는 남아야 함"
+    assert os.path.isfile(os.path.join(std, "계획안_표준.dxf")), "정리해 둔 대지 파일(대지표준)이 지워짐"
 
 
 def test_쉬는_칸은_지우고_만드는_중인_칸은_남김(app, monkeypatch):
