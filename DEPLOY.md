@@ -16,6 +16,6 @@
 
 ## 제한 (fly.toml `[env]`)
 한 변 `CONTOUR_MAX_SIDE`(1000m), 하루 횟수 `CONTOUR_RUNS_PER_DAY`(5), 파일 `CONTOUR_MAX_UPLOAD_MB`(150),
-작업 시간 `CONTOUR_JOB_MINUTES`(12), 보관 `CONTOUR_KEEP_HOURS`(24).
+작업 시간 `CONTOUR_JOB_MINUTES`(12), 보관 `CONTOUR_KEEP_MINUTES`(60, 분), 디스크 여유 `CONTOUR_MIN_FREE_MB`(1500). 서버 크기는 fly.toml [[vm]] (전용 CPU 2개·8GB, 디스크 5GB).
 
 서버에서는 정밀도로지도(재배포 금지), PC 경로 입력, 폴더 열기를 쓰지 않습니다.

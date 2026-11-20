@@ -756,7 +756,7 @@ async function upload(files, add){
     $('srcinfo').textContent=files.length>1?`도엽 ${i+1}/${files.length} 올리는 중…${i+1===files.length?' · 이어 붙이는 중':''}`:`${f.name} 여는 중…`;
     const h={'X-Filename':encodeURIComponent(f.name),'X-Batch':batch,'X-Count':String(files.length)}; if(add&&src) h['X-Add']=encodeURIComponent(src.id);
     try{r=await fetch('/upload',{method:'POST',headers:h,body:f}); j=await r.json();}
-    catch(err){loading=[]; $('srcinfo').innerHTML=`<span style="color:var(--err)">${esc(f.name)}: 프로그램에 닿지 못했어요. 검은 창이 켜져 있는지 확인해 주세요.</span>`; renderList(); return;}
+    catch(err){loading=[]; $('srcinfo').innerHTML=`<span style="color:var(--err)">${esc(f.name)}: ${SRV?'서버에 닿지 못했어요. 서버가 켜지는 중일 수 있어요. 10초쯤 뒤 다시 넣어 주세요.':'프로그램에 닿지 못했어요. 검은 창이 켜져 있는지 확인해 주세요.'}</span>`; renderList(); return;}
     if(!r.ok){loading=[]; $('srcinfo').innerHTML=`<span style="color:var(--err)">${esc(f.name)}: ${esc(j.error)}</span>`; renderList(); return;}
   }
   loading=[]; const keep=site; src=j; names={}; lawRing=null;
@@ -1152,7 +1152,7 @@ async function poll(){
   if(!j.done&&j.queue){runView(0,`순서 기다리는 중 · 앞에 ${j.queue}명`,0);return;}
   if(!j.done){lastRun=[k,step?step[2]:'준비 중',j.elapsed,Date.now()]; runView(k,lastRun[1],j.elapsed);return;}
   lastRun=null;
-  clearInterval(timer); $('stop').disabled=false; $('stop').textContent='멈추기'; live.finish(!j.error);
+  clearInterval(timer); $('stop').disabled=false; $('stop').textContent='멈추기'; live.finish(!j.error&&!j.cancelled, j.cancelled?'멈추기를 눌러 멈췄어요.':(j.error?friendly(j.error).what:''));
   if(j.cancelled){mode('setup'); setStatus('run','멈췄어요. 설정을 바꿔 다시 만들 수 있어요.'); return;}
   if(j.error){mode('setup'); showErr(friendly(j.error)); return;}
   doneView(j);
@@ -1207,7 +1207,7 @@ async function doneView(j){
     if(/^분석_.*\.png$|^preview_plan\.png$/.test(n)){const i=RSUB.findIndex(r=>r[2]===n); if(i>=0){$('rsub').querySelector(`[data-i="${i}"]`).click(); return;}}
     if(SRV){location.href='/download?name='+encodeURIComponent(n);return;}
     fetch('/open',{method:'POST',body:JSON.stringify({name:n})});});
-  $('fpath').innerHTML=SRV?'파일은 24시간 뒤 서버에서 지워져요. 필요한 것은 지금 받아 두세요.':resDir?`${esc(resDir.replace(/[\\/][^\\/]+$/,''))}${resDir.includes('\\')?'\\':'/'}<b>${esc(f.name)}</b> <button type="button" class="lk2" id="cpath">경로 복사</button>`:'';
+  $('fpath').innerHTML=SRV?'결과는 1시간 동안 아무것도 안 하거나 새로 만들면 서버에서 지워져요. 필요한 것은 지금 받아 두세요.':resDir?`${esc(resDir.replace(/[\\/][^\\/]+$/,''))}${resDir.includes('\\')?'\\':'/'}<b>${esc(f.name)}</b> <button type="button" class="lk2" id="cpath">경로 복사</button>`:'';
   const cp=$('cpath'); if(cp) cp.onclick=async()=>{try{await navigator.clipboard.writeText(resDir); cp.textContent='복사했어요';}catch(e){cp.textContent='복사 못 함';}};
   mode('done'); loadRecent(); show('p3d');
 }
@@ -1234,6 +1234,8 @@ function friendly(err){
   const fm=e.match(/(도로시설 위치|가로등 위치|항공사진) 파일을 찾지 못했습니다: (.*)/);
   if(fm) return {...base,what:`${fm[1]} 파일을 찾지 못했어요.`,why:`적어 둔 경로(${fm[2]})에 파일이 없어요.`,how:'자료 파일 칸의 경로를 고치거나 비워 두세요. 비우면 그 자료 없이 만들어요.',
     acts:[['자료 파일 칸 열기',()=>{hideErr();document.querySelectorAll('details.more')[1].open=true;},1]]};
+  if(/분 안에 끝나지 않아/.test(e)) return {...base,what:'시간 제한 안에 끝나지 않았어요.',why:first,how:'범위를 줄이거나(예: 500m) 건물 디테일을 낮춰 다시 만들어 보세요.',
+    acts:[['디테일 1로 다시 만들기',()=>{$('detail').value='1';$('detail').dispatchEvent(new Event('change'));start(collect());},1],['기록 보기',()=>{hideErr();show('plog');}]]};
   if(/MemoryError|메모리/.test(e)) return {...base,what:'컴퓨터 메모리가 모자랐어요.',why:'범위가 넓거나 건물 디테일이 높으면 메모리를 많이 써요.',how:'범위를 줄이거나 건물 디테일을 낮춰 다시 만들어 보세요.',
     acts:[['디테일 1로 다시 만들기',()=>{$('detail').value='1';$('detail').dispatchEvent(new Event('change'));start(collect());},1]]};
   if(/HTTP|40[13]|Timeout|timed out|Connection|SSL|인증키|key/i.test(e)) return {...base,what:'인터넷 자료를 받지 못했어요.',why:'인증키가 틀렸거나, 서비스 신청이 안 되어 있거나, 인터넷 연결이 끊겼어요.',how:'인증키 창에서 연결 시험을 눌러 어느 키가 문제인지 확인해 주세요.',
@@ -1264,9 +1266,9 @@ import * as THREE from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {smartZoom} from './zoom.js';
-let R,S,C,O,Z,root,sun;
+let R,S,C,O,Z,root,sun,MATS={};
 function init3d(){
-  R=new THREE.WebGLRenderer({antialias:true}); R.setPixelRatio(devicePixelRatio);
+  R=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'}); R.setPixelRatio(Math.min(devicePixelRatio,1.5));
   R.shadowMap.enabled=true; R.shadowMap.type=THREE.PCFSoftShadowMap; R.toneMapping=THREE.ACESFilmicToneMapping; R.toneMappingExposure=0.8;
   $('three').appendChild(R.domElement);
   S=new THREE.Scene(); S.background=new THREE.Color('#d9d9d9');
@@ -1277,12 +1279,13 @@ function init3d(){
 function draw(){R&&R.render(S,C);}
 // 3D 나무 켜고 끄기 (숲이 넓으면 지형·건물을 덮는다)
 let TREES=[], treeOn=true;
-$('tgtree').onclick=()=>{treeOn=!treeOn; TREES.forEach(o=>o.visible=treeOn); $('tgtree').classList.toggle('off',!treeOn); $('tgtree').textContent=treeOn?'나무 보이기':'나무 숨김'; draw();};
+$('tgtree').onclick=()=>{treeOn=!treeOn; TREES.forEach(o=>o.visible=treeOn); if(sun) sun.shadow.needsUpdate=true; $('tgtree').classList.toggle('off',!treeOn); $('tgtree').textContent=treeOn?'나무 보이기':'나무 숨김'; draw();};
 function resize3d(){if(!R) return; const el=$('three'); R.setSize(el.clientWidth,el.clientHeight); C.aspect=el.clientWidth/el.clientHeight; C.updateProjectionMatrix(); draw();}
 window.load3d=()=>load3d();
 function load3d(){
   if(!R) init3d(); $('threeempty').textContent='3D 모델 불러오는 중…';
-  if(root){S.remove(root);}
+  if(root){S.remove(root); root.traverse(o=>{if(o.isMesh) o.geometry.dispose();}); root=null;}
+  MATS={};
   new GLTFLoader().load('/result/model.glb?t='+Date.now(),g=>{
     root=g.scene; root.rotation.x=-Math.PI/2;
     root.traverse(o=>{if(!o.isMesh) return; o.castShadow=o.receiveShadow=true; const vc=!!o.geometry.attributes.color, soft=o.name.includes('terrain_slope')||o.name==='terrain';
@@ -1290,11 +1293,12 @@ function load3d(){
       // 색 변환은 같은 메시를 쓰는 개체가 여럿이어도 한 번만. 나무는 변환하지 않아 밝게(변환하면 숲이 검게 보였다)
       let tree=false; for(let q=o;q;q=q.parent) if(/^t\d+$|^trees$|^tree_/.test(q.name)){tree=true;break;}
       if(vc&&!o.geometry.userData.lin&&!tree){o.geometry.userData.lin=1; const a=o.geometry.attributes.color, t=new THREE.Color(); for(let i=0;i<a.count;i++){t.setRGB(a.getX(i),a.getY(i),a.getZ(i)).convertSRGBToLinear(); a.setXYZ(i,t.r,t.g,t.b);}}
-      o.material=new THREE.MeshStandardMaterial({color:vc?0xffffff:0xc8c8c8,vertexColors:vc,roughness:0.9,flatShading:!soft});});
+      // 재질은 종류별로 하나만 만들어 함께 쓴다 (부품 수천 개가 각자 재질을 가지면 화면이 버벅였다)
+      const mk=(vc?1:0)+(soft?2:0); o.material=MATS[mk]||(MATS[mk]=new THREE.MeshStandardMaterial({color:vc?0xffffff:0xc8c8c8,vertexColors:vc,roughness:0.9,flatShading:!soft}));});
     S.add(root);
     const b=new THREE.Box3().setFromObject(root), c=b.getCenter(new THREE.Vector3()), d=Math.max(...b.getSize(new THREE.Vector3()).toArray());
     if(sun){S.remove(sun,sun.target);}
-    sun=new THREE.DirectionalLight(0xffffff,1.8); sun.castShadow=true; sun.shadow.mapSize.set(4096,4096); sun.shadow.bias=-0.0004; sun.shadow.normalBias=0.4;
+    sun=new THREE.DirectionalLight(0xffffff,1.8); sun.castShadow=true; sun.shadow.mapSize.set(2048,2048); sun.shadow.autoUpdate=false; sun.shadow.needsUpdate=true; sun.shadow.bias=-0.0004; sun.shadow.normalBias=0.4;
     sun.position.set(c.x+d*0.75,c.y+d*0.7,c.z-d*0.25); sun.target.position.copy(c); S.add(sun,sun.target);
     const sc=sun.shadow.camera; sc.left=sc.bottom=-d*0.8; sc.right=sc.top=d*0.8; sc.near=1; sc.far=d*4; sc.updateProjectionMatrix();
     C.position.set(c.x-d*0.95,c.y+d*0.95,c.z+d*1.15); O.target.copy(c); O.update(); C.near=Math.max(d/500,0.05); C.far=d*20; C.updateProjectionMatrix(); Z.setModel(root);

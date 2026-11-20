@@ -15,8 +15,42 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import pipeline
-from .progress import Progress
+
+
+class _LazyModule:
+    """무거운 모듈(numpy·trimesh·rhino3dm 등)은 처음 쓸 때 불러온다.
+    서버가 켜질 때 이것들을 먼저 불러오느라 14초 동안 접속을 못 받던 것(fly 'instance refused connection')을 없앤다."""
+
+    def __init__(self, name):
+        self._name, self._mod = name, None
+
+    def __getattr__(self, attr):
+        if self._mod is None:
+            import importlib
+            self._mod = importlib.import_module(self._name, __package__)
+        return getattr(self._mod, attr)
+
+
+pipeline = _LazyModule(".pipeline")
+_READY = threading.Event()          # 서버: 무거운 라이브러리를 다 불러왔는가 (내 PC 판은 처음부터 참)
+_READY.set()
+
+
+def _warm_up():
+    """서버가 켜진 뒤 한 줄에서만 무거운 라이브러리를 불러온다. 여러 요청이 동시에 불러오면
+    shapely 가 '반쯤 불러온 모듈' 오류를 낸다(2026-11-20 시험에서 발견) → 다른 요청은 _READY 를 기다린다."""
+    try:
+        from . import pipeline as _p, progress, site, sitefile  # noqa: F401
+        pipeline._mod = _p
+    except Exception:
+        traceback.print_exc()
+    finally:
+        _READY.set()
+
+
+def Progress(*a, **k):
+    from .progress import Progress as _P
+    return _P(*a, **k)
 
 WEB = os.path.join(os.path.dirname(__file__), "web")
 HOME = os.path.join(os.path.expanduser("~"), "콘타모델")
@@ -35,7 +69,8 @@ LIMITS = dict(
     runs_per_day=int(os.environ.get("CONTOUR_RUNS_PER_DAY") or 5),       # 한 사람(IP)이 하루에 만들 수 있는 횟수
     max_upload_mb=int(os.environ.get("CONTOUR_MAX_UPLOAD_MB") or 150),   # 파일 하나 최대 크기
     job_minutes=int(os.environ.get("CONTOUR_JOB_MINUTES") or 12),        # 한 작업 최대 시간
-    keep_hours=int(os.environ.get("CONTOUR_KEEP_HOURS") or 24),          # 올린 파일·결과 보관 시간
+    keep_minutes=int(os.environ.get("CONTOUR_KEEP_MINUTES") or 60),      # 아무것도 안 하면 올린 파일·결과를 지우는 시간 (분)
+    min_free_mb=int(os.environ.get("CONTOUR_MIN_FREE_MB") or 1500),      # 디스크 남은 공간이 이보다 적으면 오래 쉰 칸부터 지움
     max_queue=int(os.environ.get("CONTOUR_MAX_QUEUE") or 20),            # 대기 줄 최대 길이
 )
 SERVER_KEYS = dict(vworld_key=os.environ.get("VWORLD_KEY") or None,
@@ -154,25 +189,80 @@ def _queue_worker():
             QUEUE.pop(0)
 
 
+def _busy(s):
+    job = s["state"].get("job")
+    return bool(job and not job.done)
+
+
+def _drop_session(sid):
+    s = SESSIONS.pop(sid, None)
+    if s:
+        shutil.rmtree(s["home"], ignore_errors=True)
+
+
+def _free_mb():
+    try:
+        return shutil.disk_usage(DATA).free / 1e6
+    except OSError:
+        return 1e9
+
+
+def _make_room(keep_sid=None):
+    """디스크가 모자라면 만드는 중이 아닌 칸을 오래 쉰 것부터 지운다 (지금 쓰는 사람 칸은 마지막까지 남김)."""
+    if _free_mb() >= LIMITS["min_free_mb"]:
+        return
+    with LOCK:
+        idle = sorted((s["at"], sid) for sid, s in SESSIONS.items() if sid != keep_sid and not _busy(s))
+    root = os.path.join(DATA, "sessions")
+    orphans = []
+    if os.path.isdir(root):                       # 서버를 다시 켜서 목록에 없는 옛 폴더
+        orphans = sorted((os.path.getmtime(os.path.join(root, d)), d) for d in os.listdir(root)
+                         if d not in SESSIONS and d != keep_sid)
+    for _, d in orphans:
+        if _free_mb() >= LIMITS["min_free_mb"]:
+            return
+        shutil.rmtree(os.path.join(root, d), ignore_errors=True)
+        _slog("공간 확보: 옛 폴더 지움", d[:6])
+    for _, sid in idle:
+        if _free_mb() >= LIMITS["min_free_mb"]:
+            return
+        _drop_session(sid)
+        _slog("공간 확보: 쉬는 칸 지움", sid[:6])
+
+
+def _drop_old_results(keep):
+    """서버: 방문자마다 가장 최근 결과 하나만 남긴다 (새로 만들기 시작하면 이전 결과를 지움)."""
+    home = _home()
+    if not os.path.isdir(home):
+        return
+    for d in os.listdir(home):
+        p = os.path.join(home, d)
+        if not d.startswith("_") and os.path.isdir(p) and os.path.realpath(p) != os.path.realpath(keep):
+            shutil.rmtree(p, ignore_errors=True)
+    _state()["view"] = None
+
+
 def _cleanup_loop():
-    """오래된 방문자 폴더(올린 지도·결과)를 지운다. 기본 24시간."""
+    """한동안(기본 60분) 아무것도 안 한 방문자 칸(올린 지도·결과)을 지우고, 디스크가 모자라면 더 지운다."""
     while True:
-        time.sleep(600)
-        limit = time.time() - LIMITS["keep_hours"] * 3600
-        for sid, s in list(SESSIONS.items()):
-            job = s["state"].get("job")
-            if s["at"] < limit and not (job and not job.done):
-                SESSIONS.pop(sid, None)
-                shutil.rmtree(s["home"], ignore_errors=True)
-        root = os.path.join(DATA, "sessions")
-        if os.path.isdir(root):                      # 서버를 다시 켜서 목록에 없는 옛 폴더도
-            for d in os.listdir(root):
-                p = os.path.join(root, d)
-                if d not in SESSIONS and os.path.getmtime(p) < limit:
-                    shutil.rmtree(p, ignore_errors=True)
-        today = time.strftime("%Y%m%d")
-        for k in [k for k in RUNS if k[1] != today]:
-            RUNS.pop(k, None)
+        time.sleep(120)
+        try:
+            limit = time.time() - LIMITS["keep_minutes"] * 60
+            for sid, s in list(SESSIONS.items()):
+                if s["at"] < limit and not _busy(s):
+                    _drop_session(sid)
+            root = os.path.join(DATA, "sessions")
+            if os.path.isdir(root):                      # 서버를 다시 켜서 목록에 없는 옛 폴더도
+                for d in os.listdir(root):
+                    p = os.path.join(root, d)
+                    if d not in SESSIONS and os.path.getmtime(p) < limit:
+                        shutil.rmtree(p, ignore_errors=True)
+            _make_room()
+            today = time.strftime("%Y%m%d")
+            for k in [k for k in RUNS if k[1] != today]:
+                RUNS.pop(k, None)
+        except Exception:                                # 정리 줄이 죽으면 디스크가 다시 찬다
+            traceback.print_exc()
 
 
 def _zip_dir(d, names=None):
@@ -358,6 +448,12 @@ def _overview_png(folder, sheet, path):
 
 
 # ---------------------------------------------------------------- 작업
+def _slog(*a):
+    """서버 기록(fly logs)에 한 줄. 화면에 안 보이는 멈춤·실패 이유를 나중에 찾을 수 있게."""
+    if SERVER:
+        print(time.strftime("[%H:%M:%S]"), *a, flush=True)
+
+
 class Cancelled(BaseException):
     """화면의 '멈추기'. BaseException 이라 중간의 except Exception 에 삼켜지지 않는다."""
 
@@ -395,6 +491,7 @@ class Job:
 
     def run(self):
         p = dict(self.params)
+        _slog("작업 시작", f"범위 {p.get('size')}", f"지형 {p.get('terrain')}/{p.get('terrain_fit')}", f"디테일 {p.get('detail')}")
         try:
             p.pop("source")
             src = self.src
@@ -425,6 +522,11 @@ class Job:
             if getattr(self, "tmp", None):
                 shutil.rmtree(self.tmp, ignore_errors=True)
             self.done = True
+            took = round(time.time() - self.started)
+            if self.error:
+                _slog("작업 실패", f"{took}초", self.error[:300])
+            else:
+                _slog("작업 완료", f"{took}초")
 
 
 def _child_run(folder, out, params, live, tmp, q):
@@ -562,6 +664,9 @@ def start_job(q):
             raise ValueError(f"대지 경계 파일을 찾지 못했습니다: {params['site_file']}")
         if params["aerial_file"] and not os.path.isfile(params["aerial_file"]):
             raise ValueError(f"항공사진 파일을 찾지 못했습니다: {params['aerial_file']}")
+        if SERVER:
+            _drop_old_results(params["out"])
+            _make_room(_sess()["sid"])
         job = Job(params)
         _state()["job"] = job
         if SERVER:
@@ -699,8 +804,12 @@ class Handler(BaseHTTPRequestHandler):
 
     _cookie = None
 
+    _LIGHT = re.compile(r"^/(|about|legal|app|index\.html|config|status|site/.*|vendor/.*|[\w-]+\.js|feedback|admin/feedback)$")
+
     def _begin(self):
         """서버 모드: 쿠키로 방문자를 알아보고 그 사람의 칸을 고른다."""
+        if not _READY.is_set() and not self._LIGHT.match(urlparse(self.path).path):
+            _READY.wait(120)
         self._cookie = None
         if not SERVER:
             _CTX.sess = None
@@ -713,7 +822,7 @@ class Handler(BaseHTTPRequestHandler):
             if not s:
                 sid = sid or secrets.token_urlsafe(18)
                 s = SESSIONS[sid] = _new_session(sid, os.path.join(DATA, "sessions", sid))
-                self._cookie = f"csid={sid}; Path=/; Max-Age={LIMITS['keep_hours'] * 3600}; HttpOnly; SameSite=Lax"
+                self._cookie = f"csid={sid}; Path=/; Max-Age={LIMITS['keep_minutes'] * 60}; HttpOnly; SameSite=Lax"
                 if os.environ.get("CONTOUR_HTTPS") == "1":
                     self._cookie += "; Secure"
             s["at"] = time.time()
@@ -807,7 +916,7 @@ class Handler(BaseHTTPRequestHandler):
             events = job.progress.events
             return self._send(200, dict(running=not job.done, done=job.done, error=job.error,
                                         lines=job.lines[since:], n=len(job.lines), out=job.out,
-                                        events=events[ev:], ne=len(events), cancelled=job.cancelled,
+                                        events=events[ev:], ne=len(events), cancelled=job.cancelled and not job.timed_out,
                                         summary=job.summary, elapsed=round(time.time() - job.started),
                                         queue=job.queue_pos() if SERVER and not job.done else 0))
         if path.startswith("/result/"):
@@ -872,6 +981,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(413, {"error": f"파일이 너무 큽니다. {LIMITS['max_upload_mb']}MB 까지 올릴 수 있습니다."})
             if u.path == "/feedback":
                 return self._feedback(n)
+            if u.path in ("/upload", "/siteupload"):
+                _make_room(_sess()["sid"])
+                if _free_mb() < n / 1e6 + 300:
+                    self.rfile.read(n)
+                    _slog("업로드 거절: 디스크 부족", f"{_free_mb():.0f}MB 남음")
+                    return self._send(507, {"error": "서버 저장 공간이 잠시 모자라요. 몇 분 뒤 다시 올려 주세요."})
         try:
             if u.path == "/upload":
                 name = unquote(self.headers.get("X-Filename") or "map.zip")
@@ -1083,7 +1198,7 @@ body{{font-family:P,system-ui;margin:32px;color:#111;background:#fff}}h1{{font-s
 td,th{{border-bottom:1px solid #e6e6e6;padding:10px 8px;text-align:left;vertical-align:top}}th{{color:#555;font-weight:600}}
 td.t{{white-space:pre-wrap;max-width:560px}}small{{display:block;color:#8a8a8a;margin-top:6px}}</style>
 <h1>받은 의견 {stats['count']}개</h1>
-<p class=s>오늘 만든 모델 <b>{stats['runs_today']}</b>번 · 지금 기다리는 작업 <b>{stats['queue']}</b>개 · 최근 24시간 방문 칸 <b>{stats['sessions']}</b>개</p>
+<p class=s>오늘 만든 모델 <b>{stats['runs_today']}</b>번 · 지금 기다리는 작업 <b>{stats['queue']}</b>개 · 지금 남아 있는 방문 칸 <b>{stats['sessions']}</b>개</p>
 <table><tr><th>시간(한국)</th><th>종류</th><th>점수</th><th>내용</th><th>연락처</th><th>위치</th></tr>{trs}</table>"""
     return self._send(200, page, "text/html; charset=utf-8")
 
@@ -1097,7 +1212,11 @@ def serve():
     srv = ThreadingHTTPServer(("0.0.0.0", port), Handler)
     srv.daemon_threads = True
     from . import __version__
-    print(f"콘타 모델 공개 서버 v{__version__} :{port}  제한 {LIMITS}", flush=True)
+    print(f"콘타 모델 공개 서버 v{__version__} :{port}  제한 {LIMITS}  디스크 남은 공간 {_free_mb():.0f}MB", flush=True)
+    # 접속은 바로 받고, 무거운 라이브러리는 뒤에서 한 번만 불러 둔다. 화면·상태 확인은 바로 대답하고
+    # 지도 올리기 같은 무거운 요청만 다 불러올 때까지(몇 초) 기다린다.
+    _READY.clear()
+    threading.Thread(target=_warm_up, daemon=True).start()
     srv.serve_forever()
 
 

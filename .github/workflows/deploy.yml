@@ -34,8 +34,12 @@ jobs:
             flyctl apps create "$APP" || { echo "앱 이름 '$APP' 을 만들 수 없습니다 (이미 누가 쓰는 이름일 수 있음). fly.toml 의 app 이름을 바꿔 주세요."; exit 1; }
           fi
           if ! flyctl volumes list -a "$APP" | grep -q contour_data; then
-            flyctl volumes create contour_data -a "$APP" -r nrt -s 1 -y
+            flyctl volumes create contour_data -a "$APP" -r nrt -s 5 -y
           fi
+          # 디스크가 5GB 보다 작으면 늘린다 (1GB 로 시작해 결과 몇 개로 꽉 차던 것, 2026-11-20). 줄이기는 안 됨.
+          flyctl volumes list -a "$APP" --json | jq -r '.[] | select(.name=="contour_data" and .size_gb < 5) | .id' | while read -r VOL; do
+            flyctl volumes extend "$VOL" -s 5 -a "$APP" -y || echo "디스크 늘리기 실패 (배포는 계속): $VOL"
+          done
           # 비밀값 옮기기 (값이 있는 것만)
           ARGS=""
           for k in CONTOUR_ADMIN_TOKEN VWORLD_KEY VWORLD_DOMAIN DATA_GO_KR_KEY SEOUL_KEY SAFEMAP_KEY; do
