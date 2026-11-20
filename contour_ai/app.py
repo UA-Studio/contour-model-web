@@ -697,6 +697,8 @@ def _server_check(params, q):
         if len(QUEUE) >= LIMITS["max_queue"]:
             raise ValueError("지금 기다리는 사람이 많습니다. 잠시 뒤 다시 눌러 주세요.")
     ip, today = q.get("_ip") or "?", time.strftime("%Y%m%d")
+    if getattr(_CTX, "dev", False):              # 개발자(관리자 토큰 쿠키): 하루 횟수 제한 없음
+        return
     used = RUNS.get((ip, today), 0)
     if used >= LIMITS["runs_per_day"]:
         raise ValueError(f"한 사람이 하루에 {LIMITS['runs_per_day']}번까지 만들 수 있습니다. 내일 다시 써 주세요. "
@@ -804,13 +806,14 @@ class Handler(BaseHTTPRequestHandler):
 
     _cookie = None
 
-    _LIGHT = re.compile(r"^/(|about|legal|app|index\.html|config|status|site/.*|vendor/.*|[\w-]+\.js|feedback|admin/feedback)$")
+    _LIGHT = re.compile(r"^/(|about|legal|app|index\.html|config|status|site/.*|vendor/.*|[\w-]+\.js|feedback|admin/feedback|dev)$")
 
     def _begin(self):
         """서버 모드: 쿠키로 방문자를 알아보고 그 사람의 칸을 고른다."""
         if not _READY.is_set() and not self._LIGHT.match(urlparse(self.path).path):
             _READY.wait(120)
         self._cookie = None
+        _CTX.dev = SERVER and _is_dev(self)
         if not SERVER:
             _CTX.sess = None
             return
@@ -878,7 +881,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._file(os.path.join(WEB, "index.html"))
         if path == "/config":                        # 화면이 서버 모드인지 알고 맞는 칸만 보이게
             from . import __version__
-            return self._send(200, dict(server=SERVER, version=__version__,
+            return self._send(200, dict(server=SERVER, version=__version__, dev=SERVER and _CTX.dev,
                                         limits=LIMITS if SERVER else None,
                                         keys=dict(vworld=bool(SERVER_KEYS["vworld_key"]),
                                                   data=bool(SERVER_KEYS["data_key"])) if SERVER else None))
@@ -946,6 +949,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"files": fs, "dir": d, "name": os.path.basename(d), "summary": summ})
         if path == "/admin/feedback":
             return _admin_feedback(self, q)
+        if SERVER and path == "/dev":
+            return _dev_login(self, q)
         if path == "/recent":                  # 지난 결과 목록
             return self._send(200, {"items": recent_results(), "home": None if SERVER else _home()})
         if path == "/overview_tile.png":       # 지도 확대: 보이는 부분만 선명하게
@@ -1172,6 +1177,41 @@ def _feedback(self, n):
 
 
 Handler._feedback = _feedback
+
+
+def _dev_mark():
+    """개발자 쿠키 값: 관리자 토큰에서 만든 서명 (토큰 자체는 쿠키에 넣지 않음)."""
+    import hashlib
+    import hmac
+    tok = os.environ.get("CONTOUR_ADMIN_TOKEN")
+    return hmac.new(tok.encode(), b"contour-dev", hashlib.sha256).hexdigest() if tok else None
+
+
+def _is_dev(handler):
+    mark = _dev_mark()
+    m = re.search(r"(?:^|;\s*)cdev=([0-9a-f]{64})", handler.headers.get("Cookie") or "")
+    import hmac
+    return bool(mark and m and hmac.compare_digest(m.group(1), mark))
+
+
+def _dev_login(self, q):
+    """/dev?key=관리자토큰 → 이 브라우저를 1년 동안 개발자로 기억하고 /app 으로. /dev?off=1 → 해제."""
+    import hmac
+    tok = os.environ.get("CONTOUR_ADMIN_TOKEN")
+    if q.get("off"):
+        cookie = "cdev=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"
+    elif tok and hmac.compare_digest((q.get("key") or "").encode(), tok.encode()):
+        cookie = f"cdev={_dev_mark()}; Path=/; Max-Age={365 * 86400}; HttpOnly; SameSite=Lax"
+        if os.environ.get("CONTOUR_HTTPS") == "1":
+            cookie += "; Secure"
+        _slog("개발자 모드 켬")
+    else:
+        return self._send(403, {"error": "열쇠가 맞지 않습니다."})
+    self.send_response(302)
+    self.send_header("Set-Cookie", cookie)
+    self.send_header("Location", "/app")
+    self.send_header("Content-Length", "0")
+    self.end_headers()
 
 
 def _admin_feedback(self, q):

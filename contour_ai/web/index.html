@@ -1401,7 +1401,7 @@ var SRV=false, SRVCFG=null;
   const L=SRVCFG.limits||{};
   ['w','h'].forEach(k=>{const e=document.getElementById(k); if(e) e.max=L.max_side||1000;});
   const wbox=document.getElementById('w'); if(wbox){const p=document.createElement('p'); p.className='srvnote';
-    p.textContent='이 사이트에서는 한 변 '+(L.max_side||1000)+'m까지, 하루 '+(L.runs_per_day||5)+'번까지 만들 수 있어요.';
+    p.textContent=SRVCFG.dev?'개발자 모드: 하루 횟수 제한 없음 · 한 변 '+(L.max_side||1000)+'m까지':'이 사이트에서는 한 변 '+(L.max_side||1000)+'m까지, 하루 '+(L.runs_per_day||5)+'번까지 만들 수 있어요.';
     const row=wbox.closest('.row'); if(row) row.after(p);}
   const of=document.getElementById('openf'); if(of) of.textContent='전부 한 번에 받기 (zip)';
   const hd=document.querySelector('.sb-head .ver'); if(hd) hd.innerHTML+=' · <a href="/" style="color:inherit">소개</a>';
