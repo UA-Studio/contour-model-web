@@ -116,3 +116,52 @@ def test_서버_켜짐_빠름_그리고_디스크_기록(tmp_path):
         assert took < 8, f"서버가 대답하기까지 {took:.1f}초"
     finally:
         p.terminate(); p.wait(10)
+
+
+def test_개발자_열쇠로_하루_횟수_제한_없음(tmp_path):
+    """관리자 토큰으로 /dev?key=… 를 한 번 열면 그 브라우저는 하루 5번 제한 없이 만든다 (2026-11-20 사용자 요청)."""
+    import urllib.error
+    s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
+    env = dict(os.environ, CONTOUR_SERVER="1", CONTOUR_DATA=str(tmp_path), PORT=str(port), MPLBACKEND="Agg",
+               PYTHONUTF8="1", CONTOUR_ADMIN_TOKEN="test-key-123", CONTOUR_RUNS_PER_DAY="0")
+    p = subprocess.Popen([sys.executable, "-m", "contour_ai", "serve"], cwd=ROOT, env=env)
+    base = f"http://127.0.0.1:{port}"
+
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *a, **k):
+            return None
+    op = urllib.request.build_opener(NoRedirect)
+    try:
+        for _ in range(200):
+            try:
+                urllib.request.urlopen(base + "/config", timeout=2)
+                break
+            except Exception:
+                time.sleep(0.05)
+        with pytest.raises(urllib.error.HTTPError) as e:
+            op.open(base + "/dev?key=wrong", timeout=10)
+        assert e.value.code == 403
+        with pytest.raises(urllib.error.HTTPError) as e:   # 302 는 따라가지 않게 해서 오류로 잡힘
+            op.open(base + "/dev?key=test-key-123", timeout=10)
+        assert e.value.code == 302
+        ck = e.value.headers.get("Set-Cookie")
+        assert ck.startswith("cdev=") and "test-key-123" not in ck
+        cookie = ck.split(";")[0]
+        req = urllib.request.Request(base + "/config", headers={"Cookie": cookie})
+        assert json.loads(urllib.request.urlopen(req, timeout=10).read())["dev"] is True
+        assert json.loads(urllib.request.urlopen(base + "/config", timeout=10).read())["dev"] is False
+    finally:
+        p.terminate(); p.wait(10)
+
+
+def test_개발자는_횟수_검사를_건너뜀(app):
+    s = _session(app, "d" * 20)
+    app._CTX.sess = s
+    params = dict(hd_dir=None, aerial_file=None, site_file=None, road_files=(), light_files=(), dem_files=None,
+                  out=os.path.join(s["home"], "모델"), size=500)
+    app.LIMITS["runs_per_day"] = 0
+    app._CTX.dev = False
+    with pytest.raises(ValueError, match="하루에"):
+        app._server_check(dict(params), {"_ip": "1.2.3.4"})
+    app._CTX.dev = True
+    app._server_check(dict(params), {"_ip": "1.2.3.4"})
