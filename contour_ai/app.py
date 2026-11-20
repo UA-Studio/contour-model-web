@@ -909,8 +909,8 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html", "/app"):
             return self._file(os.path.join(WEB, "index.html"))
         if path == "/config":                        # 화면이 서버 모드인지 알고 맞는 칸만 보이게
-            from . import __version__
-            return self._send(200, dict(server=SERVER, version=__version__, dev=SERVER and _CTX.dev,
+            from . import __version__, __date__
+            return self._send(200, dict(server=SERVER, version=__version__, date=__date__, dev=SERVER and _CTX.dev,
                                         limits=LIMITS if SERVER else None,
                                         keys=dict(vworld=bool(SERVER_KEYS["vworld_key"]),
                                                   data=bool(SERVER_KEYS["data_key"])) if SERVER else None))
@@ -1291,8 +1291,16 @@ def serve():
     srv.serve_forever()
 
 
-def main(port=8765, open_browser=True):
+def main(port=None, open_browser=None):
+    """내 PC 판(윈도우 .bat 더블클릭): 127.0.0.1 에서 화면을 열고 브라우저를 띄운다.
+    CONTOUR_PORT·CONTOUR_NO_BROWSER=1 은 자동 시험용."""
+    port = port or int(os.environ.get("CONTOUR_PORT") or 8765)
+    if open_browser is None:
+        open_browser = os.environ.get("CONTOUR_NO_BROWSER") != "1"
     os.makedirs(_home(), exist_ok=True)
+    # 무거운 라이브러리는 한 줄에서 먼저 불러 둔다 (여러 요청이 동시에 불러오면 shapely '반쯤 불러온 모듈' 오류)
+    _READY.clear()
+    threading.Thread(target=_warm_up, daemon=True).start()
     for p in range(port, port + 20):
         try:
             srv = ThreadingHTTPServer(("127.0.0.1", p), Handler)
@@ -1303,7 +1311,7 @@ def main(port=8765, open_browser=True):
     from . import __version__, __date__
     print(f"콘타 모델 프로그램 v{__version__} ({__date__})")
     print(f"콘타 모델 화면: {url}  (이 창을 닫으면 프로그램이 꺼집니다)")
-    print(f"결과는 {_home()} 아래에 저장됩니다.")
+    print(f"결과는 {_home()} 아래에 저장됩니다.", flush=True)
     if open_browser:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()
     try:

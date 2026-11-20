@@ -481,7 +481,7 @@ details.ppmap>summary{padding:12px 18px 4px;font-size:12px;color:var(--link);cur
 <div class="app">
 <aside>
  <div class="sb-head">
-  <div><h1>콘타 모델 만들기</h1><p class="ver">v2.0.3 · 2026-11-18</p></div>
+  <div><h1>콘타 모델 만들기</h1><p class="ver">v2.1 · 2026-11-20</p></div>
   <button type="button" class="keybtn" id="keybtn" aria-haspopup="dialog"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M15 8l2 2"/></svg>인증키 <span id="keycount">0/4</span></button>
  </div>
  <div class="sb-scroll" id="setup">
@@ -1395,6 +1395,7 @@ body.srv .desk, body.srv #keybtn, body.srv #testapi, body.srv label[for=out], bo
 <script>
 var SRV=false, SRVCFG=null;
 (async()=>{try{SRVCFG=await (await fetch('/config')).json();}catch(e){return;}
+  {const v=document.querySelector('.sb-head .ver'); if(v&&SRVCFG.version) v.textContent='v'+SRVCFG.version+(SRVCFG.date?' · '+SRVCFG.date:'');}
   if(!SRVCFG.server) return;
   SRV=true; document.body.classList.add('srv');
   const fd=document.getElementById('aerialbox'); if(fd&&fd.closest('details')) fd.closest('details').id='filesdet';
