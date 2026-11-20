@@ -726,7 +726,23 @@ def result_dir():
     if _state().get("view") and os.path.isdir(_state()["view"]):
         return _state()["view"]
     job = _state()["job"]
-    return job.out if job and job.done and os.path.isdir(job.out) else None
+    if job:
+        return job.out if job.done and os.path.isdir(job.out) else None
+    if SERVER:
+        # 서버가 꺼졌다 켜지면(자동 꺼짐·배포) 메모리의 작업 기록이 사라진다. 디스크에 남은 그 사람의 가장 최근 결과를 쓴다.
+        r = recent_results(1)
+        return r[0]["path"] if r else None
+    return None
+
+
+_NO_RESULT_PAGE = """<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>내려받을 결과가 없어요</title>
+<body style="font-family:Pretendard,system-ui,sans-serif;max-width:520px;margin:15vh auto;padding:0 24px;color:#111;line-height:1.6">
+<h2 style="font-size:20px">내려받을 결과를 찾지 못했어요</h2>
+<p style="color:#555">결과는 1시간 동안 쓰지 않으면 지워지고, 새로 만들면 이전 결과가 지워져요.
+다른 브라우저나 시크릿 창에서 열었을 때도 이전 결과가 보이지 않아요.</p>
+<p><a href="/app" style="display:inline-block;background:#111;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none">만들기 화면으로 돌아가기</a></p>
+</body></html>"""
 
 
 def recent_results(n=8):
@@ -829,9 +845,18 @@ class Handler(BaseHTTPRequestHandler):
             if not s:
                 sid = sid or secrets.token_urlsafe(18)
                 s = SESSIONS[sid] = _new_session(sid, os.path.join(DATA, "sessions", sid))
-                self._cookie = f"csid={sid}; Path=/; Max-Age={LIMITS['keep_minutes'] * 60}; HttpOnly; SameSite=Lax"
+                # 쿠키는 방문자를 알아보는 이름표일 뿐: 길게 둔다. 올린 파일·결과는 서버가 1시간 쉬면 따로 지운다.
+                # (예전엔 처음 들어온 때부터 60분이라, 계속 쓰던 사람도 1시간 뒤 새 방문자가 되어 결과를 잃었다)
+                self._cookie = f"csid={sid}; Path=/; Max-Age={30 * 24 * 3600}; HttpOnly; SameSite=Lax"
                 if os.environ.get("CONTOUR_HTTPS") == "1":
                     self._cookie += "; Secure"
+                if os.path.isdir(s["home"]):     # 서버를 다시 켠 뒤: 마지막으로 쓴 때를 폴더 시각에서 이어받음
+                    s["at"] = max(os.path.getmtime(s["home"]), time.time() - 60)
+            if time.time() - s["at"] > 60 and os.path.isdir(s["home"]):
+                try:                                 # 쓰는 중이라는 표시를 디스크에도 (서버를 다시 켜도 바로 지우지 않게)
+                    os.utime(s["home"])
+                except OSError:
+                    pass
             s["at"] = time.time()
         _CTX.sess = s
 
@@ -892,6 +917,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/download":                      # 결과 파일 내려받기 (서버 모드에서 '폴더 열기' 대신)
             d = result_dir()
             if not d:
+                if "text/html" in (self.headers.get("Accept") or ""):
+                    return self._send(404, _NO_RESULT_PAGE, "text/html; charset=utf-8")
                 return self._send(404, {"error": "결과가 없습니다"})
             name = os.path.basename(q.get("name") or "")
             stem = os.path.basename(d)
