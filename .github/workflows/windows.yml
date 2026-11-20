@@ -64,7 +64,7 @@ jobs:
           $bat = Join-Path $dir "콘타모델_윈도우\콘타모델 실행.bat"
           if (!(Test-Path $bat)) { throw "zip 안에 실행 파일이 없음" }
           # 묶음 파이썬이 이 컴퓨터의 파이썬 없이 라이브러리를 모두 불러오는지
-          & (Join-Path $dir "콘타모델_윈도우\python\python.exe") -s -I -c "import sys, contour_ai, rhino3dm, rasterio, ezdxf, trimesh, manifold3d, scipy, shapely, pyproj, matplotlib, mapbox_earcut, contourpy, shapefile; import contour_ai.pipeline; print(sys.prefix, 'v' + contour_ai.__version__)"
+          & (Join-Path $dir "콘타모델_윈도우\python\python.exe") -s -I -c "import sys, contour_ai, rhino3dm, rasterio, ezdxf, trimesh, manifold3d, scipy, shapely, pyproj, matplotlib, mapbox_earcut, contourpy, shapefile; import contour_ai.pipeline; print(ascii(sys.prefix), 'v' + contour_ai.__version__)"
           if ($LASTEXITCODE -ne 0) { throw "묶음 안 라이브러리 불러오기 실패" }
           pip install -r requirements-server.txt pytest
           $env:CONTOUR_TEST_BAT = $bat

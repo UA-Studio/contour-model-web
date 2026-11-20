@@ -80,6 +80,14 @@ def main(out_dir):
         for f in sorted(stage.rglob("*")):
             z.write(f, f.relative_to(out_dir).as_posix())
     size = sum(f.stat().st_size for f in stage.rglob("*") if f.is_file())
+    big = {}
+    for f in stage.rglob("*"):
+        if f.is_file():
+            rel = f.relative_to(stage).parts
+            k = "/".join(rel[:4] if rel[:3] == ("python", "Lib", "site-packages") else rel[:2])
+            big[k] = big.get(k, 0) + f.stat().st_size
+    for k, v in sorted(big.items(), key=lambda kv: -kv[1])[:15]:
+        print(f"  {v / 1e6:7.1f}MB  {k}")
     print(f"묶음: {zp.name}  풀면 {size / 1e6:.0f}MB, zip {zp.stat().st_size / 1e6:.0f}MB ({time.time() - t0:.0f}초)")
     gh = os.environ.get("GITHUB_OUTPUT")
     if gh:
