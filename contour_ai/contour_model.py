@@ -642,6 +642,29 @@ def heightfield_mesh(X, Y, H, bottom, origin):
     return m
 
 
+def simplify_solid(m, tol=0.01):
+    """닫힌 지형 메시에서 평평하거나 고르게 기운 곳의 잔 삼각형을 합친다 (모양 차이 tol m 이하).
+
+    1m 격자 그대로면 1000m 모델 지형 하나가 꼭짓점 200만 개라 Rhino 저장만 70초, GLB 85MB 가 된다.
+    계단판·터처럼 평평한 곳이 많아 꼭짓점이 1/6~1/10 로 준다. 실패하면 원래 메시를 그대로 쓴다.
+    """
+    if len(m.vertices) < 20000:
+        return m
+    try:
+        import manifold3d as mf
+        M = _mf_from_trimesh(m)
+        if M.status() != mf.Error.NoError:
+            return m
+        out = M.simplify(tol).to_mesh()
+        v = np.asarray(out.vert_properties, dtype=float)[:, :3]
+        s = trimesh.Trimesh(v, np.asarray(out.tri_verts, dtype=np.int64), process=False)
+    except Exception:
+        return m
+    if len(s.faces) == 0 or not s.is_watertight:
+        return m
+    return s
+
+
 # ---------------------------------------------------------------- 건물
 def building_masses(buildings, regions, clip, floor_height=FLOOR_HEIGHT):
     """건물 매스. 바닥은 발자국 아래 가장 낮은 판 윗면에서 평평하게 끝난다(그보다 깊이 묻지 않음).
@@ -2217,6 +2240,7 @@ def build(src, bbox, out="out", log=print, **kw):
             terrain_mesh = heightfield_mesh(X, Y, H + 0.05, np.minimum(B, H), origin)
         else:
             terrain_mesh = heightfield_mesh(X, Y, H, lv[0] - (lv[1] - lv[0]) * 2, origin)
+        terrain_mesh = simplify_solid(terrain_mesh)
         hz = surface_sampler(X, Y, H)
         # 곡면 대지 위에는 길 전체를 두께 있는 한 층으로 (보도·교통섬은 연석 높이만큼 더)
         area_meshes = drape_area_solids(areas_lv, hz, origin, a.road_thickness)
@@ -2225,6 +2249,7 @@ def build(src, bbox, out="out", log=print, **kw):
             X2, Y2, H2, B2 = X[::2, ::2], Y[::2, ::2], H[::2, ::2], B[::2, ::2]
             skp_terrain = (heightfield_mesh(X2, Y2, H2 + 0.05, np.minimum(B2, H2), origin) if a.terrain == "combo"
                            else heightfield_mesh(X2, Y2, H2, lv[0] - (lv[1] - lv[0]) * 2, origin))
+            skp_terrain = simplify_solid(skp_terrain)
             skp_solids = drape_area_solids(areas_lv, hz, origin, a.road_thickness, max_edge=8.0)
         areas = []
         edges = [(drape_line_3d(ls, hz), L) for ls, L in edges]

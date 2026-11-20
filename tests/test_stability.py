@@ -169,3 +169,25 @@ def test_개발자는_횟수_검사를_건너뜀(app):
         app._server_check(dict(params), {"_ip": "1.2.3.4"})
     app._CTX.dev = True
     app._server_check(dict(params), {"_ip": "1.2.3.4"})
+
+
+def test_지형_메시를_줄여도_모양은_같음():
+    """1000m 지형이 1m 격자 그대로면 꼭짓점 200만 개라 5단계(Rhino 저장)만 70초가 걸렸다 (2026-11-20).
+    평평한 곳의 잔 삼각형을 합쳐 꼭짓점은 크게 줄이되, 높이 차는 1cm 이하·닫힌 솔리드 그대로여야 한다."""
+    import numpy as np
+    import trimesh
+    from contour_ai.contour_model import heightfield_mesh, simplify_solid
+    n = 301
+    X, Y = np.meshgrid(np.arange(n, dtype=float), np.arange(n, dtype=float))
+    H = np.where(X < 150, 50.0, 50.0 + (X - 150) * 0.2) + np.where(Y > 200, 3.0, 0.0)   # 평지·고른 비탈·단
+    H = H + 0.5 * np.sin(X / 9.0) * (X > 250)                                            # 굽은 곳
+    m = heightfield_mesh(X, Y, H, 40.0, (0.0, 0.0))
+    s = simplify_solid(m)
+    assert len(s.vertices) < len(m.vertices) / 4, (len(m.vertices), len(s.vertices))
+    assert s.is_watertight and abs(s.volume - m.volume) / m.volume < 1e-3
+    import matplotlib.tri as mtri
+    top = s.faces[s.face_normals[:, 2] > 0.05]
+    tri = mtri.Triangulation(s.vertices[:, 0], s.vertices[:, 1], top)
+    z = mtri.LinearTriInterpolator(tri, s.vertices[:, 2])(X.ravel(), Y.ravel())
+    assert np.ma.count_masked(z) == 0
+    assert np.max(np.abs(np.asarray(z) - H.ravel())) <= 0.012
