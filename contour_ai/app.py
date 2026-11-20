@@ -237,7 +237,11 @@ def _drop_old_results(keep):
         return
     for d in os.listdir(home):
         p = os.path.join(home, d)
-        if not d.startswith("_") and os.path.isdir(p) and os.path.realpath(p) != os.path.realpath(keep):
+        # 모델 결과 폴더(summary.json 또는 model.3dm 이 있는 것)만 지운다. 올린 지도(_입력)와 정리해 둔 대지 파일(대지표준)은
+        # 다시 만들 때 쓰므로 남긴다 (2026-11-20: 대지표준까지 지워 '대지 경계 파일을 찾지 못했습니다' 오류).
+        is_result = any(os.path.exists(os.path.join(p, n)) for n in ("summary.json", "model.3dm", "laser"))
+        if (is_result and not d.startswith("_") and d != "대지표준" and os.path.isdir(p)
+                and os.path.realpath(p) != os.path.realpath(keep)):
             shutil.rmtree(p, ignore_errors=True)
     _state()["view"] = None
 
