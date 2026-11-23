@@ -5,6 +5,9 @@ import argparse
 import json
 import sys
 
+from .bundle_env import setup as _bundle_env
+
+_bundle_env()   # 윈도우판 묶음: 라이브러리를 불러오기 전에 좌표계 자료 위치를 맞춘다
 
 
 def main():
@@ -62,13 +65,15 @@ def main():
     m.add_argument("--no-facade", action="store_true", help="창문·재료 레이어 생략(매스만)")
     m.add_argument("--facade-radius", type=float, help="이 반경(m) 안 건물만 창문을 냄 (기본: 전부)")
     m.add_argument("--no-sketchup", action="store_true", help="스케치업용 파일 생략")
+    m.add_argument("--outputs", nargs="+", choices=["skp", "3dm", "stl", "laser"], default=None,
+                   help="만들 파일 형식(여러 개 가능). 기본은 스케치업(skp)만. 3dm=Rhino, stl=3D 프린트, laser=레이저 판 DXF")
     a = ap.parse_args()
     size = a.size[0] if len(a.size) == 1 else tuple(a.size[:2])
     from .pipeline import run
     s = run(a.source if len(a.source) > 1 else a.source[0], a.out, name=a.name, latlon=a.latlon, xy=a.xy, size=size, green=not a.no_green,
             year=a.year, scale=a.scale, interval=a.interval, terrain=a.terrain, floor_height=a.floor_height,
             no_trees=a.no_trees, tree_hole=a.tree_hole, road_thickness=a.road_thickness,
-            sketchup=not a.no_sketchup, vworld_key=a.vworld_key, vworld_domain=a.vworld_domain, data_key=a.data_key, site_address=a.site, site_file=a.site_file, site_clear=a.site_clear, site_keep_terrain=a.site_keep_terrain, dem_files=a.dem or None, terrain_fit="exact" if a.exact_terrain else "smooth", pads=not a.no_pads, parcel_file=a.parcel_file,
+            sketchup=not a.no_sketchup, outputs=a.outputs, vworld_key=a.vworld_key, vworld_domain=a.vworld_domain, data_key=a.data_key, site_address=a.site, site_file=a.site_file, site_clear=a.site_clear, site_keep_terrain=a.site_keep_terrain, dem_files=a.dem or None, terrain_fit="exact" if a.exact_terrain else "smooth", pads=not a.no_pads, parcel_file=a.parcel_file,
             aerial_file=a.aerial, lights=not a.no_lights, facade=not a.no_facade, detail=a.detail, structures=not a.no_structures, facade_radius=a.facade_radius, light_files=tuple(a.lights_file),
             road_detail=not a.no_road_detail, road_files=tuple(a.road_files),
             seoul_key=a.seoul_key, safemap_key=a.safemap_key, seoul_service=a.seoul_service, safemap_layer=a.safemap_layer,

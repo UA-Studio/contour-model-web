@@ -627,6 +627,7 @@ def start_job(q):
                       terrain=q.get("terrain") or "combo", terrain_fit="exact" if q.get("terrain_fit") == "exact" else "smooth", floor_height=float(q.get("floor_height") or 3.3),
                       no_trees=not q.get("street_trees", True), tree_hole=float(q.get("tree_hole") or 1.0),
                       road_thickness=float(q.get("road_thickness") or 1.0), sketchup=bool(q.get("sketchup", True)),
+                      outputs=q.get("outputs") or None,   # 없으면 기본(스케치업만, contour_model.OUTPUTS_DEFAULT)
                       vworld_key=(q.get("vworld_key") or "").strip() or None,
                       vworld_domain=(q.get("vworld_domain") or "").strip(),
                       data_key=(q.get("data_key") or "").strip() or None,

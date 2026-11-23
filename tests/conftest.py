@@ -54,23 +54,33 @@ def fake_site(out_root):
     return p
 
 
-def _run(source, out, **kw):
+ALL_OUTPUTS = ("skp", "3dm", "stl", "laser")
+
+
+def _run(source, out, size=300, **kw):
     from contour_ai import pipeline
     logs = []
-    s = pipeline.run(str(source), str(out), size=300, green=False, log=lambda *a: logs.append(" ".join(map(str, a))), **kw)
+    s = pipeline.run(str(source), str(out), size=size, green=False, log=lambda *a: logs.append(" ".join(map(str, a))), **kw)
     (Path(out) / "실행기록.txt").write_text("\n".join(logs), encoding="utf-8")
     return s
 
 
 @pytest.fixture(scope="session")
 def basic_model(out_root, fake_sheet):
-    """기본 모델: 가짜 도엽, 300m, 위성영상 없이."""
+    """기본 모델: 가짜 도엽, 300m, 위성영상 없이. 모든 출력 형식(Rhino·STL·레이저 코드도 시험하려고)."""
     out = out_root / "기본모델"
-    return out, _run(fake_sheet, out)
+    return out, _run(fake_sheet, out, outputs=ALL_OUTPUTS)
 
 
 @pytest.fixture(scope="session")
 def site_model(out_root, fake_sheet, fake_site):
     """대지 경계 + 레벨 도면 + 대지 위 비우기."""
     out = out_root / "대지모델"
-    return out, _run(fake_sheet, out, site_file=str(fake_site), site_clear=True)
+    return out, _run(fake_sheet, out, site_file=str(fake_site), site_clear=True, outputs=ALL_OUTPUTS)
+
+
+@pytest.fixture(scope="session")
+def skp_model(out_root, fake_sheet, fake_site):
+    """출력 형식 기본값(v2.2: 스케치업만) + 대지 경계·레벨 도면."""
+    out = out_root / "스케치업만"
+    return out, _run(fake_sheet, out, site_file=str(fake_site))

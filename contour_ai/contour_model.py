@@ -13,7 +13,6 @@ from collections import defaultdict
 
 import ezdxf
 import numpy as np
-import rhino3dm as r3
 import trimesh
 from scipy.interpolate import LinearNDInterpolator, NearestNDInterpolator
 from shapely import make_valid
@@ -22,6 +21,24 @@ from shapely.geometry import (LineString, MultiLineString, MultiPolygon, Point,
 from shapely.ops import polygonize, unary_union
 
 from .progress import extrude, fill, low_trees, ribbon
+
+
+class _Rhino:
+    """rhino3dm 은 Rhino(3dm) 출력을 고를 때만 불러온다. 스케치업만 만드는 윈도우판에는 넣지 않는다."""
+    _m = None
+
+    def __getattr__(self, name):
+        if _Rhino._m is None:
+            try:
+                import rhino3dm
+            except ImportError:
+                raise SystemExit("Rhino(3dm) 파일을 만들 라이브러리(rhino3dm)가 이 프로그램에 없습니다. "
+                                 "이 판은 스케치업 파일만 만듭니다. 출력 형식에서 Rhino 를 빼고 다시 해 주세요.")
+            _Rhino._m = rhino3dm
+        return getattr(_Rhino._m, name)
+
+
+r3 = _Rhino()
 
 # ---------------------------------------------------------------- 레이어 코드
 CONTOUR_LAYERS = ("F0017111", "F0017114")          # 주곡선, 계곡선
@@ -818,113 +835,27 @@ def _rh_mesh(m, crisp=True):
     return rm
 
 
-def _add_site(f, site, interp, origin, log, step=None):
-    """model.3dm 에 검토 대지 경계와 정북일조 사선(참고)을 더한다. site = {poly(모델 좌표), review}"""
-    from .landlaw import envelope_mesh
-    poly, rv = site["poly"], site.get("review") or {}
-    xs = np.linspace(poly.bounds[0], poly.bounds[2], 12)
-    ys = np.linspace(poly.bounds[1], poly.bounds[3], 12)
-    pts = [(x, y) for x in xs for y in ys if poly.contains(Point(x, y))] or [tuple(poly.representative_point().coords[0])]
-    ground = float(np.nanmean(interp(np.array(pts))))
+def _add_site_3dm(f, items, origin):
+    """model.3dm 에 검토 대지 도형(site_overlay.site_overlay 가 만든 목록)을 더한다. 레이어 '대지::…'."""
+    layers = {}
 
-    def layer(name, rgb, parent=None):
+    def layer(path, rgb):
+        if path in layers:
+            return layers[path]
+        parent, _, name = path.rpartition("::")
         L = r3.Layer(); L.Name = name; L.Color = (*rgb, 255)
-        if parent is not None:
-            L.ParentLayerId = f.Layers[parent].Id
-        return f.Layers.Add(L)
-    top = layer("대지", (220, 60, 40))
-    lb = layer("경계", (220, 60, 40), top)
-    for g in as_polys(poly):
-        a = r3.ObjectAttributes(); a.LayerIndex = lb; a.Name = f"대지 경계 {rv.get('address', '')}".strip()
-        a.SetUserString("면적(㎡)", f"{poly.area:.1f}")
-        a.SetUserString("PNU", str(rv.get("pnu") or ""))
-        for k in ("zone", "bcr", "far", "area"):
-            if rv.get(k) is not None:
-                a.SetUserString({"zone": "용도지역", "bcr": "건폐율(%)", "far": "용적률(%)", "area": "대지면적(㎡)"}[k],
-                                str(round(rv[k], 1) if isinstance(rv[k], float) else rv[k]))
-        f.Objects.AddCurve(_rh_curve(g.exterior, ground + 0.05, origin), a)
-    # 경계선을 지형에 눌러 붙인 선: 계단판마다 그 판 윗면 높이에(레이저 SITE 각인과 같은 선), 그리고 매끈한 지형 위에
-    regions = site.get("regions")
-    n_dr = 0
-    if regions:
-        ld = layer("경계(계단판 위)", (220, 60, 40), top)
-        rings = [r for g in as_polys(poly) for r in [g.exterior, *g.interiors]]
-        for ls, L in drape_lines([LineString(r.coords) for r in rings], regions):
-            a = r3.ObjectAttributes(); a.LayerIndex = ld; a.Name = f"대지 경계 · 판 EL {L:g}"
-            f.Objects.AddCurve(_rh_curve(ls, L + 0.02, origin), a); n_dr += 1
-    lt = layer("경계(지형 위)", (220, 60, 40), top)
-    for g in as_polys(poly):
-        for r in [g.exterior, *g.interiors]:
-            seg = LineString(r.coords).segmentize(1.0)
-            zz = interp(np.array(seg.coords)[:, :2])
-            a = r3.ObjectAttributes(); a.LayerIndex = lt; a.Name = "대지 경계 · 지형 위"
-            f.Objects.AddCurve(_rh_curve(LineString([(x, y, z + 0.02) for (x, y, *_), z in zip(seg.coords, zz)]), 0, origin), a)
-    log(f"   대지 경계선을 지형에 눌러 붙였습니다 (Rhino 대지::경계(계단판 위) {n_dr}조각 · 대지::경계(지형 위))")
-    if step:
-        # 대지 안을 사업지 레벨로 다시 그린 등고선 (step m 간격, 각 선은 제 높이에)
-        import contourpy
-        b = poly.bounds
-        xs = np.arange(b[0] - 1, b[2] + 1.5, 0.5); ys = np.arange(b[1] - 1, b[3] + 1.5, 0.5)
-        GX, GY = np.meshgrid(xs, ys)
-        GZ = interp(np.column_stack([GX.ravel(), GY.ravel()])).reshape(GX.shape)
-        gen = contourpy.contour_generator(GX, GY, GZ)
-        lc = layer("레벨 등고선", (40, 90, 220), top)
-        n = 0
-        for z in np.arange(np.ceil(np.nanmin(GZ) / step) * step, np.nanmax(GZ) + 1e-6, step):
-            for c in gen.lines(z - 0.01):     # 평평한 단(레벨 = z)에서 선이 부서지지 않게 살짝 아래를 딴다
-                if len(c) < 2:
-                    continue
-                g2 = LineString(c).intersection(poly)
-                for part in getattr(g2, "geoms", [g2]):
-                    if isinstance(part, LineString) and part.length > 0.5:
-                        a = r3.ObjectAttributes(); a.LayerIndex = lc; a.Name = f"EL {z:g}"
-                        f.Objects.AddCurve(_rh_curve(part, z, origin), a); n += 1
-        log(f"   대지 안 레벨 등고선 {n}줄을 넣었습니다 ({step:g}m 간격, Rhino 대지::레벨 등고선)")
-    # 표준 대지 파일의 레벨판·원지형 유지·계획 건물·도로 (선으로, 그 자리 계획 높이에)
-    plates, keep, blds, roads = (site.get(k) or [] for k in ("plates", "keep", "buildings", "roads"))
-    if site.get("keep_terrain"):
-        plates, keep = [], []      # 원래 지형 유지: 계획 레벨판은 넣지 않는다(건물·도로 선은 원래 지형 위에)
-    if plates:
-        lp = layer("레벨판", (40, 90, 220), top)
-        for p, z in plates:
-            for g in as_polys(p):
-                a = r3.ObjectAttributes(); a.LayerIndex = lp; a.Name = f"레벨판 EL {z:g}"
-                a.SetUserString("계획 레벨", f"{z:g}"); a.SetUserString("면적(㎡)", f"{g.area:.1f}")
-                f.Objects.AddCurve(_rh_curve(g.exterior, z + 0.05, origin), a)
-    if keep:
-        lk = layer("원지형 유지", (90, 90, 90), top)
-        for p in keep:
-            for g in as_polys(p):
-                zz = interp(np.array(g.exterior.coords)[:, :2])
-                a = r3.ObjectAttributes(); a.LayerIndex = lk; a.Name = "원지형 유지"
-                f.Objects.AddCurve(_rh_curve(LineString([(x, y, z + 0.05) for (x, y), z in zip(g.exterior.coords, zz)]), 0, origin), a)
-    if blds:
-        lbd = layer("계획 건물", (30, 30, 30), top)
-        for i, p in enumerate(blds):
-            for g in as_polys(p):
-                c = g.representative_point()
-                z = float(interp(np.array([[c.x, c.y]]))[0])
-                a = r3.ObjectAttributes(); a.LayerIndex = lbd; a.Name = f"계획 건물 {i + 1} (EL {z:.1f})"
-                f.Objects.AddCurve(_rh_curve(g.exterior, z + 0.1, origin), a)
-    if roads:
-        lr = layer("계획 도로", (120, 120, 120), top)
-        for ls in roads:
-            seg = ls.segmentize(2.0)
-            zz = interp(np.array(seg.coords)[:, :2])
-            a = r3.ObjectAttributes(); a.LayerIndex = lr; a.Name = "계획 도로·램프"
-            f.Objects.AddCurve(_rh_curve(LineString([(x, y, z + 0.1) for (x, y, *_), z in zip(seg.coords, zz)]), 0, origin), a)
-    if plates or keep or blds or roads:
-        log(f"   표준 대지 파일 도형을 넣었습니다 (Rhino 대지:: 레벨판 {len(plates)} · 원지형 유지 {len(keep)} · 계획 건물 {len(blds)} · 계획 도로 {len(roads)})")
-    env = None
-    if rv.get("sunlight"):
-        env = envelope_mesh(poly, ground)
-        if env is not None:
-            env.apply_translation([-origin[0], -origin[1], 0])
-            le = layer("정북일조 사선(참고)", (240, 150, 60), top)
-            a = r3.ObjectAttributes(); a.LayerIndex = le; a.Name = "정북일조 사선: 높이 10m 이하 1.5m, 초과 부분 높이의 1/2"
-            f.Objects.AddMesh(_rh_mesh(env), a)
-    log(f"   대지 경계" + (" + 정북일조 사선을" if env is not None else "를") + f" 넣었습니다 (기준 지표면 EL {ground:.1f})")
-    return dict(address=rv.get("address"), pnu=rv.get("pnu"), ground=round(ground, 2), envelope=env is not None)
+        if parent:
+            L.ParentLayerId = f.Layers[layer(parent, rgb)].Id
+        layers[path] = f.Layers.Add(L)
+        return layers[path]
+    for it in items:
+        a = r3.ObjectAttributes(); a.LayerIndex = layer(it["layer"], it["rgb"]); a.Name = it["name"]
+        for k, v in it["attrs"].items():
+            a.SetUserString(k, v)
+        if it["kind"] == "curve":
+            f.Objects.AddCurve(_rh_curve(LineString(it["xyz"]), 0, origin), a)
+        else:
+            f.Objects.AddMesh(_rh_mesh(_shifted(it["mesh"], origin)), a)
 
 
 def _shifted(mesh, origin):
@@ -1336,7 +1267,8 @@ def _shift(p, origin):
 
 def write_stl(path, regions, masses, origin, areas=(), trees=(), terrain_mesh=None, area_meshes=(),
               steps_too=False, floor_height=FLOOR_HEIGHT, inlays=(), lights=(), structs=(), tree_style="species",
-              roadbits=(), site_mesh=None, tick=None, scale=1000.0, field=None, site_poly=None):
+              roadbits=(), site_mesh=None, tick=None, scale=1000.0, field=None, site_poly=None, print_stl=True):
+    """path(.stl) 에 3D 프린트 솔리드(print_stl 일 때만), 같은 이름 .glb 에 미리보기를 쓴다."""
     from .building_detail import building_parts
     from .paths_trees import PATH_STYLE, TREE
     T = tick or (lambda *a, **k: None)
@@ -1404,15 +1336,17 @@ def write_stl(path, regions, masses, origin, areas=(), trees=(), terrain_mesh=No
             t = trunk0.copy(); t.apply_scale([tr_, tr_, cz]); t.apply_translation([x - origin[0], y - origin[1], z])
             tree_meshes.append(trimesh.util.concatenate([c, t]))
     # 3D 프린트용 STL: 지형 + 건물을 한 덩어리 솔리드로, 단위 mm·모형 크기 그대로 (v2.0)
-    t0 = time.time()
-    scene = print_solid(regions, masses, origin, scale, field, steps_too, tick=T, site=site_poly)
-    T("STL 저장")
-    scene.export(path)
-    if os.environ.get("CONTOUR_TIMING"):
-        print(f"STL print solid {time.time() - t0:.1f}s faces {len(scene.faces)} watertight {scene.is_watertight}")
-    op, nm, fl = stl_check(scene.vertices, scene.faces)
-    if op or nm:
-        print(f"STL 검사: 열린 모서리 {op}, 꼬인 모서리 {nm}, 납작한 삼각형 {fl}")
+    scene = None
+    if print_stl:
+        t0 = time.time()
+        scene = print_solid(regions, masses, origin, scale, field, steps_too, tick=T, site=site_poly)
+        T("STL 저장")
+        scene.export(path)
+        if os.environ.get("CONTOUR_TIMING"):
+            print(f"STL print solid {time.time() - t0:.1f}s faces {len(scene.faces)} watertight {scene.is_watertight}")
+        op, nm, fl = stl_check(scene.vertices, scene.faces)
+        if op or nm:
+            print(f"STL 검사: 열린 모서리 {op}, 꼬인 모서리 {nm}, 납작한 삼각형 {fl}")
     T("미리보기 GLB")
     # 미리보기용 GLB (지형 회색, 건물 흰색)
     terr = trimesh.util.concatenate(meshes[:n_step] if steps_too else meshes[:n_terr])
@@ -1645,10 +1579,29 @@ def write_laser(out_dir, regions, masses, draped, origin, scale, areas=(), trees
 
 
 # ---------------------------------------------------------------- 메인
+# 출력 형식. 미리보기 GLB(model.glb)는 결과 화면 3D 보기에 쓰므로 언제나 쓴다.
+OUTPUTS = {"skp": "스케치업", "3dm": "Rhino", "stl": "3D 프린트 STL", "laser": "레이저 판 DXF"}
+OUTPUTS_DEFAULT = ("skp",)     # v2.2: 스케치업으로 작업하는 사무소용 — 스케치업만
+
+
+def _outputs(a):
+    """a.outputs(목록·쉼표 글자) → 고른 형식 집합. 옛 sketchup=False 는 skp 를 뺀다."""
+    o = a.outputs
+    if isinstance(o, str):
+        o = [x for x in o.replace(" ", ",").split(",") if x]
+    o = {str(x).lower() for x in (o or OUTPUTS_DEFAULT)}
+    bad = o - set(OUTPUTS)
+    if bad:
+        raise SystemExit(f"모르는 출력 형식: {', '.join(sorted(bad))} (고를 수 있는 것: {', '.join(OUTPUTS)})")
+    if not a.sketchup:
+        o.discard("skp")
+    return o
+
+
 DEFAULTS = dict(site=None, site_clear=False, site_keep_terrain=False, dem=None, terrain_fit="smooth", breaklines=False, pads=True, parcel_file=None, scale=1000, interval=5, min_area=None, floor_height=FLOOR_HEIGHT, sigma=4.0, smooth=1.5,
                 terrain="combo", no_trees=False, ndvi=None, aerial=None, crs_wkt=None, vworld_key=None,
                 vworld_domain="", data_key=None, cache_dir=None, tree_spacing=8.0, tree_hole=1.0,
-                road_thickness=ROAD_THICKNESS, sketchup=True, green=True, lights=True, light_files=(),
+                road_thickness=ROAD_THICKNESS, sketchup=True, outputs=OUTPUTS_DEFAULT, green=True, lights=True, light_files=(),
                 max_forest_trees=30000, facade=True, facade_radius=None, detail=3,
                 structures=True, road_detail=True, road_files=(), seoul_key=None, safemap_key=None,
                 seoul_service=None, safemap_layer=None, safemap_light_layer=None, seoul_code=None, hd_dir=None)
@@ -1897,6 +1850,8 @@ def build(src, bbox, out="out", log=print, **kw):
     from .progress import Progress
     pg = kw.pop("progress", None) or Progress()   # 화면의 생성 과정 실황 (없으면 조용히)
     a = SimpleNamespace(**{**DEFAULTS, **kw})
+    outs = _outputs(a)
+    a.sketchup = "skp" in outs
     a.src, a.out, a.bbox = src, out, bbox
     os.makedirs(a.out, exist_ok=True)
     from .tree_models import SPECIES
@@ -2315,7 +2270,7 @@ def build(src, bbox, out="out", log=print, **kw):
         pg.part("roadx", [(_shifted(m, origin), rgb) for m, lay, rgb, nm in roadbits],
                 info=f"도로 디테일 {len(roadbits)}묶음")
     combo = a.terrain == "combo"
-    log("5/6 Rhino(3dm)·STL·레이저 도면 쓰는 중")
+    log("5/6 " + "·".join(v for k, v in OUTPUTS.items() if k in outs) + " 파일 쓰는 중")
     pg.steps("8.1", "8.2")
 
     def save_tick(kind):
@@ -2323,48 +2278,50 @@ def build(src, bbox, out="out", log=print, **kw):
         def t(label, r=None, n=None, est=None):
             pg.note("sub", k=5, file=kind, x=label, r=r, n=n, est=est)
         return t
-    site_summary = None
-
-    def add_site(f):
-        nonlocal site_summary
+    site_summary, site_items = None, []
+    if site_poly is not None:
+        # 대지 표시 도형은 형식과 상관없이 한 번 만들어 Rhino·스케치업에 같이 넣는다 (site_overlay.py)
         try:
-            site_summary = _add_site(f, dict(a.site, poly=site_poly, regions=regions, keep_terrain=getattr(a, "site_keep_terrain", False)), interp, origin, log,
-                                     step=1.0 if level_site is not None else None)
+            from .site_overlay import site_overlay
+            site_items, site_summary = site_overlay(
+                dict(a.site, poly=site_poly, regions=regions, keep_terrain=getattr(a, "site_keep_terrain", False)),
+                interp, log, step=1.0 if level_site is not None else None)
             site_summary.update(area=round(site_poly.area, 1), cleared=cleared if wipe is not None else None)
         except Exception as e:
             log(f"   (대지 경계·일조 사선을 넣지 못함: {e})")
-    write_3dm(os.path.join(a.out, "model.3dm"), regions, masses, draped, origin, areas, trees, edges,
-              terrain_mesh, area_meshes, combo, a.floor_height, inlays, lights, structs,
-              "species" if a.detail >= 2 else "simple", roadbits,
-              before_write=add_site if site_poly is not None else None, tick=save_tick("Rhino"))
+    if "3dm" in outs:
+        write_3dm(os.path.join(a.out, "model.3dm"), regions, masses, draped, origin, areas, trees, edges,
+                  terrain_mesh, area_meshes, combo, a.floor_height, inlays, lights, structs,
+                  "species" if a.detail >= 2 else "simple", roadbits,
+                  before_write=(lambda f: _add_site_3dm(f, site_items, origin)) if site_items else None,
+                  tick=save_tick("Rhino"))
     pg.step("8.3")
     write_stl(os.path.join(a.out, "model.stl"), regions, masses, origin, areas, trees, terrain_mesh,
               area_meshes, combo, a.floor_height, inlays, lights, structs,
               "species" if a.detail >= 2 else "simple", roadbits, site_mesh=site_mesh, tick=save_tick("STL"),
               scale=a.scale, field=print_field,
-              site_poly=site_poly.intersection(clip) if site_poly is not None else None)
+              site_poly=site_poly.intersection(clip) if site_poly is not None else None,
+              print_stl="stl" in outs)
     if a.sketchup:
         pg.step("8.4")
         pg.note("sub", k=5, file="SketchUp", x="스케치업 파일")
         from .skp_export import write_sketchup
-        site_lines = []
-        if site_poly is not None:
-            rings = [LineString(r.coords) for g in as_polys(site_poly) for r in [g.exterior, *g.interiors]]
-            site_lines = [(f"대지 경계 · 판 EL {L:g}", np.array([(x, y, L + 0.02) for x, y, *_ in ls.coords]))
-                          for ls, L in drape_lines(rings, regions)]
         write_sketchup(a.out, regions, masses, origin, skp_terrain, skp_solids, inlays, areas, trees,
                        combo, a.floor_height, lights, structs, "species" if a.detail >= 2 else "simple", roadbits,
-                       site_lines=site_lines, log=log)
+                       site_items=site_items, log=log)
     pg.steps("9.1", "9.2", "9.3")
     pg.note("explode")
     pg.step("9.4")
-    pg.note("sub", k=5, file="레이저", x="레이저 판 DXF")
-    sheets = write_laser(os.path.join(a.out, "laser"), regions, masses, draped, origin, a.scale,
-                         areas_lv, trees_lv, edges_lv, a.tree_hole, greens, lights_lv,
-                         site=site_poly.intersection(clip) if site_poly is not None else None)
+    sheets = []
+    if "laser" in outs:
+        pg.note("sub", k=5, file="레이저", x="레이저 판 DXF")
+        sheets = write_laser(os.path.join(a.out, "laser"), regions, masses, draped, origin, a.scale,
+                             areas_lv, trees_lv, edges_lv, a.tree_hole, greens, lights_lv,
+                             site=site_poly.intersection(clip) if site_poly is not None else None)
     for i, f in enumerate(sheets):
         pg.step("9.5", r=i, n=len(sheets), x=os.path.basename(str(f)))
-    summary = dict(levels=list(regions), sheets=len(sheets), buildings=len(masses),
+    summary = dict(levels=list(regions), sheets=len(sheets) if "laser" in outs else None, buildings=len(masses),
+                   outputs=sorted(outs),
                    road_segments=len(draped) + len(edges), path_areas=len(areas) + len(area_meshes),
                    road_inlays=len(inlays), road_thickness_m=a.road_thickness,
                    building_uses=dict(sorted({u: sum(1 for m in masses if m.get("use") == u)
