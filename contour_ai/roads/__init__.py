@@ -1,0 +1,1 @@
+"""도로 디테일 기능별 파일: style(색·치수), data_files(자료 파일 읽기), centerlines(도로 중심선 그래프·횡단 위치), junctions(교차로 면·횡단보도 다듬기), islands(교통섬), lanes(차선·정지선·화살표 추정), aerial(항공사진 노면표시), street_furniture(신호등·전봇대), parking(주차 구획), shapes(3D 모양), assemble(road_details 전체 묶음), check_image(확인 그림)."""
