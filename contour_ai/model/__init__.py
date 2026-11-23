@@ -1,0 +1,1 @@
+"""콘타 모델 만들기 본체. 기능별 파일: layers(레이어 코드·상수), inputs(수치지도 읽기), terrain(등고선→계단 판), surface(지형 메시·길 얹기), buildings(건물 덩어리), mesh_tools(메시 공용 도구), export_3dm, export_stl, export_laser, build_steps(만들기 단계 도우미), build(전체 흐름), live_preview(진행 화면·평면 미리보기)."""
