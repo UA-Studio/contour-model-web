@@ -41,7 +41,7 @@ from .live_view import _live_details, _live_input, _live_sheet, _live_tin, _mass
 from .preview import _plan_greens, _plan_paths, _plan_sheets, _plan_trees, _preview_plan  # noqa: F401
 
 # ---------------------------------------------------------------- 메인
-DEFAULTS = dict(site=None, site_clear=False, site_keep_terrain=False, dem=None, terrain_fit="smooth", breaklines=False, pads=True, parcel_file=None, scale=1000, interval=5, min_area=None, floor_height=FLOOR_HEIGHT, sigma=4.0, smooth=1.5,
+DEFAULTS = dict(shape="square", outputs=None, site=None, site_clear=False, site_keep_terrain=False, dem=None, terrain_fit="smooth", breaklines=False, pads=True, parcel_file=None, scale=1000, interval=5, min_area=None, floor_height=FLOOR_HEIGHT, sigma=4.0, smooth=1.5,
                 terrain="combo", no_trees=False, ndvi=None, aerial=None, crs_wkt=None, vworld_key=None,
                 vworld_domain="", data_key=None, cache_dir=None, tree_spacing=8.0, tree_hole=1.0,
                 road_thickness=ROAD_THICKNESS, sketchup=True, green=True, lights=True, light_files=(),
@@ -63,6 +63,7 @@ def build(src, bbox, out="out", log=print, **kw):
     _building_details(st)
     pg.step("3.4")
     st.areas, st.edges, st.trees, st.greens, st.lights, st.structs = [], [], [], [], [], []
+    st.path_areas, st.green_geom, st.edge_lines = {}, {}, []
     st.road_info = None
     st.transit_items = []
     if os.path.isdir(a.src):
@@ -71,11 +72,13 @@ def build(src, bbox, out="out", log=print, **kw):
         _lights(st)
         _road_detail(st)
         _streets_live(st)
+        _circle_cut(st)
     else:
         st.draped = drape_lines(data["roads"], st.regions)
     _inlays(st)
     _slope(st)
     _site_mark(st)
+    _circle_meshes(st)
     _save(st)
     _summary(st)
     return st.summary
@@ -92,6 +95,10 @@ def _prepare(st, src, bbox, out, log, kw):
     pg = kw.pop("progress", None) or Progress()   # 화면의 생성 과정 실황 (없으면 조용히)
     a = SimpleNamespace(**{**DEFAULTS, **kw})
     a.src, a.out, a.bbox = src, out, bbox
+    # 받을 파일 (v2.2): None = 전부. 3D 보기(GLB)·요약·단면 자료는 늘 만든다
+    a.want = (lambda k: True) if a.outputs is None else (lambda k, o=frozenset(a.outputs): k in o)
+    if not a.want("sketchup"):
+        a.sketchup = False
     os.makedirs(a.out, exist_ok=True)
     from .tree_models import SPECIES
     SPECIES.clear()
@@ -103,7 +110,12 @@ def _prepare(st, src, bbox, out, log, kw):
     pg.step("1.1")
     data = load_shp(a.src, bbox) if os.path.isdir(a.src) else load_dxf(a.src, bbox)
     origin = (bbox[0], bbox[1])
-    clip = box(*bbox)
+    st.circle = None
+    if a.shape == "circle":                  # 원형 범위 (v2.2): 네모 안에 꼭 맞는 원
+        from .circle_range import make_circle
+        st.circle = make_circle(bbox)
+        log(f"   범위: 지름 {min(bbox[2] - bbox[0], bbox[3] - bbox[1]):g}m 원")
+    clip = st.circle if st.circle is not None else box(*bbox)
     if pg.live:
         _live_input(pg, data, bbox, origin, a.interval)
     pg.steps("1.2", "1.3")
@@ -142,6 +154,7 @@ def _pads(st):
     a, bbox, data, log = st.a, st.bbox, st.data, st.log
     # 계단식 대지: 비탈의 건물 터·논을 평평한 단으로, 단 사이는 옹벽처럼 (수치지도 건물·옹벽·담·길·논)
     st.pads = None
+    st.parcels = []
     if a.pads and (data.get("buildings") or data.get("paddies")):
         from .pads import build_pads
         site_p = (a.site or {}).get("poly")
@@ -154,6 +167,7 @@ def _pads(st):
                 barriers += list(data.get("roads", ()))      # DXF: 길은 선뿐이라 선을 막는 선으로
             roads_u = unary_union(data["road_areas"]) if data.get("road_areas") else None
             pcl = _pad_parcels(a, bbox, log)
+            st.parcels = pcl                             # 2D 지형도·다이어그램의 지적 경계 (v2.2)
             st.pads = build_pads(bl, st.interp, bbox, barriers=barriers, roads=roads_u, paddies=data.get("paddies", ()),
                               exclude=site_p if uses_site else None, parcels=pcl, log=log)
         except Exception as e:
@@ -205,6 +219,9 @@ def _sheets(st):
     st.regions, zmin = terrace_regions(data["contours"], st.interp, bbox, a.interval, min_area,
                                     smooth=st.smooth, sigma=st.sigma, chaikin_n=st.chaikin_n, keep=st.level_site,
                                     keep_w=st.pads.keep_weight if st.pads is not None else None)
+    if st.circle is not None:
+        from .circle_range import cut_regions as circle_regions
+        st.regions = circle_regions(st.regions, st.circle, min_area)
     lv = list(st.regions)
     pg.step("2.4", x=f"EL {lv[0]:g}부터 {a.interval:g}m마다 {len(lv)}단")
     # 판이 많으면(예: 1m 간격 수백 장) 화면 실황은 최대 30묶음으로 나눠 보낸다.
@@ -317,6 +334,7 @@ def _paths(st):
     st.areas = drape_areas(st.path_areas, st.regions)
     pg.step("4.3", x=f"길 면 {len(st.areas)}개")
     st.edges = drape_lines(edge_lines, st.regions)
+    st.edge_lines = edge_lines
     if pg.live:
         pg.plan("r", bbox, lambda ax: (_plan_sheets(ax, st.regions), _plan_paths(ax, st.areas)))
     st.draped = []
@@ -342,6 +360,7 @@ def _trees(st):
                 green_geom.setdefault(k, Polygon())
             if crowns:
                 green_geom["crowns"] = site_mod.outside(crowns, st.wipe)
+        st.green_geom = {k: v for k, v in green_geom.items() if k in ("forest", "garden", "grass") and v is not None}
         st.trees += _green_trees(a, green_geom, st.regions, st.trees, log)
         if st.wipe is not None:
             n0 = len(st.trees); st.trees = site_mod.outside(st.trees, st.wipe)
@@ -417,7 +436,7 @@ def _road_detail(st):
                 ug = collect(dict(seoul_key=a.seoul_key, seoul_service=a.seoul_service, seoul_code=a.seoul_code,
                                   cache_dir=a.cache_dir), bbox, _crs_wkt(a), log)
                 if ug:
-                    st.road_info["underground"] = dict(ug, road=st.path_areas.get("road"), clip=box(*bbox))
+                    st.road_info["underground"] = dict(ug, road=st.path_areas.get("road"), clip=st.clip)
             except Exception as e:
                 log(f"   (땅속 시설을 넣지 못함: {type(e).__name__}: {e})")
         except Exception as e:
@@ -548,6 +567,41 @@ def _slope(st):
                                                          for x, y, z, h, ang, kind, _ in st.lights]), (90, 90, 96))])
 
 
+def _circle_cut(st):
+    """원형 범위 (v2.2): 원 밖 나무·가로등·정류장·구조물·도로 디테일·길 면을 뺀다 (판 위 길 면은 이미 원 안)."""
+    if st.circle is None:
+        return
+    from . import site as site_mod
+    from .circle_range import keep_points, outside_of
+    c, out = st.circle, outside_of(st.circle, st.bbox)
+    st.trees = keep_points(st.trees, c)
+    st.lights = keep_points(st.lights, c)
+    st.transit_items[:] = [d for d in st.transit_items
+                           if (d.get("poly") is not None and d["poly"].intersects(c))
+                           or (d.get("poly") is None and d.get("c") is not None and c.contains(Point(*d["c"][:2])))]
+    st.structs = [s for s in st.structs if c.intersects(box(*s[0].bounds[0][:2], *s[0].bounds[1][:2]))]
+    st.path_areas = site_mod.cut_areas(st.path_areas, out)
+    st.edge_lines = site_mod.cut_lines(st.edge_lines, out)
+    if st.green_geom:
+        st.green_geom = site_mod.cut_areas(st.green_geom, out, min_area=0.0)
+    if st.road_info:
+        site_mod.cut_road_info(st.road_info, out)
+
+
+def _circle_meshes(st):
+    """원형 범위 (v2.2): 경사면 지형은 원기둥으로 자르고, 도로 디테일·구조물 메시는 원 밖 면을 뺀다."""
+    if st.circle is None:
+        return
+    from .circle_range import clip_mesh_faces, cylinder_cut
+    c, o = st.circle, st.origin
+    if st.terrain_mesh is not None:
+        st.terrain_mesh = cylinder_cut(st.terrain_mesh, c, o)
+    if st.skp_terrain is not None:
+        st.skp_terrain = cylinder_cut(st.skp_terrain, c, o)
+    st.roadbits = [(m2, lay, rgb, nm) for m, lay, rgb, nm in st.roadbits if (m2 := clip_mesh_faces(m, c)) is not None]
+    st.structs = [(m2, k, n) for m, k, n in st.structs if (m2 := clip_mesh_faces(m, c)) is not None]
+
+
 def _site_mark(st):
     """6단계: 대지 비우기 정리, 대지 경계 띠, 도로 디테일 3D."""
     from . import site as site_mod
@@ -580,6 +634,29 @@ def _site_mark(st):
     st.combo = a.terrain == "combo"
 
 
+def _zones(st):
+    """영역별 지형(v2.2)에 쓸 면: 대지 · 물 · 도로 · 보도 · 녹지 (실제 좌표)."""
+    pa = getattr(st, "path_areas", None) or {}
+    u = lambda gs: unary_union([g for g in gs if g is not None and not g.is_empty]) if gs else None  # noqa: E731
+    return {"대지": st.site_poly, "물": u(st.data.get("water_areas", [])),
+            "도로": u([pa.get("road"), pa.get("bike")]),
+            "보도": u([pa.get("sidewalk"), pa.get("island"), pa.get("stairs")]),
+            "녹지": u(list((getattr(st, "green_geom", None) or {}).values()))}
+
+
+def _zone_parts(st):
+    """영역별 지형 메시 [(이름, 메시)] (곡면 지형일 때만). 실패해도 모델은 그대로."""
+    if st.terrain_mesh is None or getattr(st, "hz", None) is None:
+        return None
+    try:
+        from .terrain_zones import zone_meshes
+        st.zone_parts = zone_meshes(_zones(st), st.clip, st.hz, st.origin)
+        return st.zone_parts
+    except Exception as e:
+        st.log(f"   (영역별 지형을 만들지 못함: {type(e).__name__}: {e})")
+        return None
+
+
 def _save(st):
     """7단계: Rhino(3dm) · STL · 스케치업 · 레이저 판 DXF 저장."""
     a, clip, log, origin, pg = st.a, st.clip, st.log, st.origin, st.pg
@@ -600,16 +677,19 @@ def _save(st):
             st.site_summary.update(area=round(st.site_poly.area, 1), cleared=st.cleared if st.wipe is not None else None)
         except Exception as e:
             log(f"   (대지 경계·일조 사선을 넣지 못함: {e})")
-    write_3dm(os.path.join(a.out, "model.3dm"), st.regions, st.masses, st.draped, origin, st.areas, st.trees, st.edges,
-              st.terrain_mesh, st.area_meshes, st.combo, a.floor_height, st.inlays, st.lights, st.structs,
-              "species" if a.detail >= 2 else "simple", st.roadbits,
-              before_write=add_site if st.site_poly is not None else None, tick=save_tick("Rhino"))
+    if a.want("rhino"):
+        write_3dm(os.path.join(a.out, "model.3dm"), st.regions, st.masses, st.draped, origin, st.areas, st.trees, st.edges,
+                  st.terrain_mesh, st.area_meshes, st.combo, a.floor_height, st.inlays, st.lights, st.structs,
+                  "species" if a.detail >= 2 else "simple", st.roadbits,
+                  before_write=add_site if st.site_poly is not None else None, tick=save_tick("Rhino"),
+                  zones=_zone_parts(st))
     pg.step("8.3")
     write_stl(os.path.join(a.out, "model.stl"), st.regions, st.masses, origin, st.areas, st.trees, st.terrain_mesh,
               st.area_meshes, st.combo, a.floor_height, st.inlays, st.lights, st.structs,
               "species" if a.detail >= 2 else "simple", st.roadbits, site_mesh=st.site_mesh, tick=save_tick("STL"),
               scale=a.scale, field=st.print_field,
-              site_poly=st.site_poly.intersection(clip) if st.site_poly is not None else None)
+              site_poly=st.site_poly.intersection(clip) if st.site_poly is not None else None, circle=st.circle,
+              stl=a.want("print"))
     if a.sketchup:
         pg.step("8.4")
         pg.note("sub", k=5, file="SketchUp", x="스케치업 파일")
@@ -626,18 +706,36 @@ def _save(st):
     pg.note("explode")
     pg.step("9.4")
     pg.note("sub", k=5, file="레이저", x="레이저 판 DXF")
-    st.sheets = write_laser(os.path.join(a.out, "laser"), st.regions, st.masses, st.draped, origin, a.scale,
+    st.sheets = [] if not a.want("laser") else write_laser(os.path.join(a.out, "laser"), st.regions, st.masses, st.draped, origin, a.scale,
                          st.areas_lv, st.trees_lv, st.edges_lv, a.tree_hole, st.greens, st.lights_lv,
                          site=st.site_poly.intersection(clip) if st.site_poly is not None else None)
     for i, f in enumerate(st.sheets):
         pg.step("9.5", r=i, n=len(st.sheets), x=os.path.basename(str(f)))
+    # 2D 지형도(CAD 평면 DXF) + 사이트 다이어그램(SVG): 등고선은 계단판 경계 그대로 (v2.2)
+    pg.note("sub", k=5, file="2D", x="2D 지형도·다이어그램")
+    from .out_plan import write_plan_outputs
+    st.plan_info = write_plan_outputs(a.out, st, log) if a.want("plan") else None
+    try:                                   # 항공사진 지형 OBJ·GLB (v2.2): 항공사진이 있을 때만
+        from .out_plan import _aerial
+        from .photo_terrain import write_photo_terrain
+        ae = _aerial(st)
+        if ae is not None and a.want("photo"):
+            hz = st.hz if getattr(st, "hz", None) is not None else (lambda x, y: st.interp(np.column_stack([x, y])))
+            write_photo_terrain(a.out, st.clip, hz, st.origin, ae, log)
+    except Exception as e:
+        log(f"   (항공사진 지형을 만들지 못함: {type(e).__name__}: {e})")
+    try:                                   # 지형 단면 재료: 화면에서 선을 그으면 바로 단면을 만든다 (v2.2)
+        from .section import save_section_data
+        save_section_data(a.out, st)
+    except Exception as e:
+        log(f"   (단면 재료를 저장하지 못함: {type(e).__name__}: {e})")
 
 
 def _summary(st):
     """8단계: 요약(summary.json), 대지 분석, 평면 확인 그림."""
     from .facade import clear_cache
     a, bbox, data, log, pg = st.a, st.bbox, st.data, st.log, st.pg
-    st.summary = dict(levels=list(st.regions), sheets=len(st.sheets), buildings=len(st.masses),
+    st.summary = dict(levels=list(st.regions), sheets=len(st.sheets) or len(st.regions), buildings=len(st.masses),
                    road_segments=len(st.draped) + len(st.edges), path_areas=len(st.areas) + len(st.area_meshes),
                    road_inlays=len(st.inlays), road_thickness_m=a.road_thickness,
                    building_uses=dict(sorted({u: sum(1 for m in st.masses if m.get("use") == u)

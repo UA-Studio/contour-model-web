@@ -3,9 +3,9 @@
 (function(){
 const $=id=>document.getElementById(id);
 const P={
-  laser:{terrain:'step',detail:'1',on:{green:1,street:1,lights:0,roadx:0,structs:0,skp:0},d:'계단판 + 매스. 판마다 레이저 DXF, 나무 자리는 구멍으로'},
-  render:{terrain:'combo',detail:'3',on:{green:1,street:1,lights:1,roadx:1,structs:1,skp:1},d:'경사 매스, 창문·재료, 나무·도로 디테일, 스케치업까지 전부'},
-  quick:{terrain:'slope',detail:'1',on:{green:0,street:0,lights:0,roadx:0,structs:0,skp:0},d:'경사면 + 매스만. 범위가 맞는지 먼저 볼 때'},
+  laser:{terrain:'step',detail:'1',outs:['rhino','laser','plan'],on:{green:1,street:1,lights:0,roadx:0,structs:0,skp:0},d:'계단판 + 매스. 판마다 레이저 DXF, 나무 자리는 구멍으로'},
+  render:{terrain:'combo',detail:'3',outs:['rhino','laser','print','sketchup','plan','photo'],on:{green:1,street:1,lights:1,roadx:1,structs:1,skp:1},d:'경사 매스, 창문·재료, 나무·도로 디테일, 스케치업까지 전부'},
+  quick:{terrain:'slope',detail:'1',outs:['rhino'],on:{green:0,street:0,lights:0,roadx:0,structs:0,skp:0},d:'경사면 + 매스만. 범위가 맞는지 먼저 볼 때'},
   custom:{d:'아래 항목을 하나씩 켜고 끄세요'}};
 const T=['green','street','lights','roadx','structs','skp'];
 let cur='render', busy=false;
@@ -19,16 +19,23 @@ function sync(){
   const lowDetail=+$('detail').value<2; $('roadx').disabled=lowDetail;
   T.forEach(k=>$(k).closest('li').classList.toggle('off',!$(k).checked||$(k).disabled));
   $('aerialbox').hidden=false; $('lightbox').hidden=!$('lights').checked; $('roadxbox').hidden=!$('roadx').checked||lowDetail;
-  const o=['3dm']; if($('terrain').value!=='slope') o.push('레이저 판 DXF'); if($('skp').checked) o.push('스케치업');
-  $('outs').textContent=o.join(' · ');
+  const outs=[...document.querySelectorAll('#outchips button')];
+  outs.find(b=>b.dataset.k==='sketchup').classList.toggle('on',$('skp').checked);   // 스케치업 = 넣을 것의 스케치업 스위치와 같은 값
+  const o=outs.filter(b=>b.classList.contains('on')&&!(b.dataset.k==='laser'&&$('terrain').value==='slope')).map(b=>b.textContent);
+  $('outs').textContent=['3D 보기',...o].join(' · ');
   const sc=+$('scale').value||1000, iv=+$('interval').value||5;
   $('moresum').textContent=`1:${sc} · 판 ${iv} m · 층 ${$('floor').value} m`;
   const n=['afile','lfile','rfile','hddir','demfile'].filter(k=>$(k).value.trim()).length; $('filesum').textContent=n?`${n}개`:'없음';
 }
 function apply(p){cur=p; store('preset',p); const c=P[p];
+  if(c.outs) document.querySelectorAll('#outchips button').forEach(b=>b.classList.toggle('on',c.outs.includes(b.dataset.k)));
   if(c.terrain){busy=true; $('terrain').value=c.terrain; $('detail').value=c.detail; T.forEach(k=>{$(k).checked=!!c.on[k]; $(k).dispatchEvent(new Event('change'))}); busy=false;}
   sync();}
 document.querySelectorAll('#presets button').forEach(b=>b.onclick=()=>apply(b.dataset.p));
+// 받을 파일 (v2.2): 누르면 켜고 끄기. 직접 고르면 프리셋은 '직접'으로
+document.querySelectorAll('#outchips button').forEach(b=>b.onclick=()=>{const on=!b.classList.contains('on');
+  if(b.dataset.k==='sketchup'){$('skp').checked=on; $('skp').dispatchEvent(new Event('change'));}
+  else{b.classList.toggle('on',on); cur='custom'; store('preset',cur); sync();}});
 // 지형 다듬기 (v1.15): 부드럽게 / 등고선 그대로 — 이 PC에 기억
 (()=>{const bs=[...document.querySelectorAll('#fitseg button')]; let v='smooth'; try{v=localStorage.getItem('contour_fit')||'smooth';}catch(e){}
   const set=x=>{bs.forEach(b=>b.classList.toggle('on',b.dataset.v===x)); try{localStorage.setItem('contour_fit',x);}catch(e){}};

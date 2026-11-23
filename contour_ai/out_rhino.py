@@ -184,7 +184,7 @@ WRITE_SEC_PER_OBJ = 2e-4
 
 def write_3dm(path, regions, masses, draped, origin, areas=(), trees=(), edges=(), terrain_mesh=None,
               area_meshes=(), steps_too=False, floor_height=FLOOR_HEIGHT, inlays=(), lights=(), structs=(),
-              tree_style="species", roadbits=(), before_write=None, tick=None):
+              tree_style="species", roadbits=(), before_write=None, tick=None, zones=None):
     """Rhino 모델. 레이어는 지형 / 길 / 건물(용도별 › 부위별) / 나무 로 나뉜다.
 
     inlays: 계단판에 판 두께로 끼워 넣는 도로 [(Polygon, level, kind)] — 계단판은 그 자리를 파낸다.
@@ -228,6 +228,17 @@ def write_3dm(path, regions, masses, draped, origin, areas=(), trees=(), edges=(
         T("지형 메시")
         li = layer("지형::경사매스" if steps_too else "지형::곡면대지", (214, 212, 205))
         f.Objects.AddMesh(_rh_mesh(terrain_mesh, crisp=False), attrs(li, "경사 매스(계단판 위)" if steps_too else "곡면 대지"))
+        if zones:
+            # 영역별 지형 (v2.2): 같은 지형을 도로·보도·녹지·물·대지·그 밖 조각으로 나눠 재료를 따로 입히거나 골라 쓰게.
+            # 전체 지형과 겹치므로 처음엔 꺼 둔다 (레이어 '지형::영역별' 을 켜고 전체 지형을 끄면 됨)
+            from .terrain_zones import ZONE_RGB
+            T("영역별 지형")
+            parent = layer("지형::영역별", (200, 200, 196))
+            f.Layers[parent].Visible = False
+            for name, part in zones:
+                lz = layer(f"지형::영역별::{name}", ZONE_RGB.get(name, (200, 200, 196)))
+                f.Layers[lz].Visible = False
+                f.Objects.AddMesh(_rh_mesh(part, crisp=False), attrs(lz, f"지형 · {name}"))
         li_ct = layer("지형::등고선", (140, 140, 136))
         for L in lv[1:]:
             for p in as_polys(regions[L]):
@@ -261,20 +272,29 @@ def write_3dm(path, regions, masses, draped, origin, areas=(), trees=(), edges=(
     for ls, L in edges:
         f.Objects.AddCurve(_rh_curve(ls, L + 0.02, origin), attrs(layer("길::도로경계선", (120, 120, 116))))
 
-    # 건물: 재료별 레이어(재료::붉은 벽돌, 재료::유리 …, 레이어마다 렌더 재료). 수치지도·대장 정보는 개체 속성(UserText)으로,
-    # 같은 건물 부위는 그룹으로(SelGroup), 용도·종류·층수대도 그룹으로 묶는다.
+    # 건물: 층수별 레이어(건물::05층::외벽·유리·지붕…, v2.2). 재료(붉은 벽돌·유리 …)는 개체마다 렌더 재료로 붙이고,
+    # 수치지도·대장 정보는 개체 속성(UserText)으로, 같은 건물 부위·용도·종류·층수대는 그룹(SelGroup)으로 묶는다.
+    # (예전엔 재료별 레이어였는데, 높이별로 골라 숨기기 쉽게 층수별 레이어로 바꿈. 재료로 고르려면 SelMaterialName·그룹 '용도:')
     from .facade import MATERIALS, facade_meshes, material_of
     mats = {}
 
-    def mat_layer(name):
-        path = f"재료::{name}"
-        if path not in layers:
+    def mat_index(name):
+        if name not in mats:
             rgb, tr_ = MATERIALS.get(name, ((230, 230, 228), 0.0))
-            li = layer(path, rgb)
             mt = r3.Material(); mt.Name = name; mt.DiffuseColor = (*rgb, 255); mt.Transparency = tr_
-            mats[name] = f.Materials.Add(mt)
-            f.Layers[li].RenderMaterialIndex = mats[name]
-        return layers[path]
+            mats[name] = (f.Materials.Add(mt), rgb)
+        return mats[name]
+
+    def floor_layer(n, part):
+        g = max(150, 235 - 4 * n)          # 높을수록 조금 진한 회색: 레이어 목록에서도 높이가 보이게
+        layer(f"건물::{n:02d}층", (g, g, g - 2))
+        return layer(f"건물::{n:02d}층::{part}", (g, g, g - 2))
+
+    def with_mat(a, name):
+        idx, rgb = mat_index(name)
+        a.MaterialSource = r3.ObjectMaterialSource.MaterialFromObject; a.MaterialIndex = idx
+        a.ColorSource = r3.ObjectColorSource.ColorFromObject; a.ObjectColor = (*rgb, 255)
+        return a
     for bi, m in enumerate(masses):
         if bi % max(1, len(masses) // 25) == 0:
             T("건물·창문", bi, len(masses))
@@ -307,22 +327,27 @@ def write_3dm(path, regions, masses, draped, origin, areas=(), trees=(), edges=(
                 a.AddToGroup(g)
             return a
         fm = facade_meshes(m, floor_height, origin) if fc.get("windows") else None
+        nf = int(m["floors"])
         for part in building_parts(m, floor_height):
             role, typ = part[0], part[1]
             if role == "body" and fm:
                 for mat, mesh in fm.items():
                     pn = "유리" if mat == "유리" else "지붕면" if mat.startswith("지붕") else "외벽"
-                    f.Objects.AddMesh(_rh_mesh(mesh), a_for(mat_layer(mat), pn))
+                    f.Objects.AddMesh(_rh_mesh(mesh), with_mat(a_for(floor_layer(nf, pn), pn), mat))
                 continue
             if role == "floorline":
                 if fm:
                     continue   # 창이 층을 보여 주므로 층선은 생략
-                a = a_for(layer("건물::층선", (150, 150, 146)), "층선")
+                a = a_for(floor_layer(nf, "층선"), "층선")
             else:
+                pn = ROLE_KO.get(role, role)
                 mat = material_of(m, role) if fc else None
-                li = mat_layer(mat) if mat else layer(f"건물::{use}::{ROLE_KO.get(role, role)}",
-                                                      USE_COLORS.get(use, (232, 232, 230)))
-                a = a_for(li, ROLE_KO.get(role, role))
+                a = a_for(floor_layer(nf, pn), pn)
+                if mat:
+                    with_mat(a, mat)
+                else:             # 재료 정보가 없으면 용도 색을 개체 색으로
+                    a.ColorSource = r3.ObjectColorSource.ColorFromObject
+                    a.ObjectColor = (*USE_COLORS.get(use, (232, 232, 230)), 255)
             if typ == "ext":
                 ext = _rh_extrusion(part[2], part[3], part[4], origin)
                 if ext:

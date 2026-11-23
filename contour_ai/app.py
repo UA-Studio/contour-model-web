@@ -373,6 +373,7 @@ class Job:
             took = round(time.time() - self.started)
             if self.error:
                 _slog("작업 실패", f"{took}초", self.error[:300])
+                _refund(self)
             else:
                 _slog("작업 완료", f"{took}초")
 
@@ -454,6 +455,16 @@ def _job_process(self, folder, out, params):
 Job._run_in_process = _job_process
 
 
+OUTPUT_KINDS = ("rhino", "laser", "print", "sketchup", "plan", "photo")
+
+
+def _outputs(v):
+    """받을 파일 (v2.2): 화면에서 고른 것만. 없으면(옛 화면·명령줄) 전부."""
+    if not isinstance(v, (list, tuple)):
+        return None
+    return [k for k in OUTPUT_KINDS if k in v]
+
+
 def start_job(q):
     with LOCK:
         if _state()["job"] and not _state()["job"].done:
@@ -461,14 +472,17 @@ def start_job(q):
         if q.get("source") not in _sources():
             raise ValueError("먼저 수치지도 zip 파일을 넣어 주세요.")
         size = [float(q.get("w") or 500), float(q.get("h") or q.get("w") or 500)]
+        shape = "circle" if q.get("shape") == "circle" else "square"
+        if shape == "circle":                    # 원: 가로 = 지름 (v2.2)
+            size[1] = size[0]
         stem = re.sub(r"[^\w가-힣]+", "_", q.get("label") or "모델").strip("_") or "모델"
         out = q.get("out") or os.path.join(_home(), stem[:60] + time.strftime("_%m%d_%H%M"))
         _state()["view"] = None
         params = dict(source=q["source"], out=out, size=size[0] if size[0] == size[1] else tuple(size),
                       xy=tuple(q["xy"]) if q.get("xy") else None, green=bool(q.get("green", True)),
                       year=int(q["year"]) if q.get("year") else None,
-                      scale=float(q.get("scale") or 1000), interval=float(q.get("interval") or 5),
-                      terrain=q.get("terrain") or "combo", terrain_fit="exact" if q.get("terrain_fit") == "exact" else "smooth", floor_height=float(q.get("floor_height") or 3.3),
+                      scale=float(q.get("scale") or 1000), interval=_interval(q.get("interval")),
+                      shape=shape, outputs=_outputs(q.get("outputs")), terrain=q.get("terrain") or "combo", terrain_fit="exact" if q.get("terrain_fit") == "exact" else "smooth", floor_height=float(q.get("floor_height") or 3.3),
                       no_trees=not q.get("street_trees", True), tree_hole=float(q.get("tree_hole") or 1.0),
                       road_thickness=float(q.get("road_thickness") or 1.0), sketchup=bool(q.get("sketchup", True)),
                       vworld_key=(q.get("vworld_key") or "").strip() or None,
@@ -495,8 +509,7 @@ def start_job(q):
                                  if x.strip().strip('"')] or None,
                       road_files=tuple(x.strip().strip('"') for x in str(q.get("road_files") or "").replace(";", "\n").splitlines()
                                        if x.strip().strip('"')))
-        if SERVER:
-            _server_check(params, q)
+        runkey = _server_check(params, q) if SERVER else None
         if params["hd_dir"] and not os.path.isdir(params["hd_dir"]):
             raise ValueError(f"정밀도로지도 폴더를 찾지 못했습니다: {params['hd_dir']}")
         for rf in params["road_files"]:
@@ -516,6 +529,9 @@ def start_job(q):
             _drop_old_results(params["out"])
             _make_room(_sess()["sid"])
         job = Job(params)
+        if runkey:                                # 하루 횟수는 작업이 실제로 시작될 때 센다 (입력 확인 오류는 안 셈)
+            RUNS[runkey] = RUNS.get(runkey, 0) + 1
+            job.runkey = runkey
         _state()["job"] = job
         if SERVER:
             with QCOND:
@@ -546,12 +562,54 @@ def _server_check(params, q):
             raise ValueError("지금 기다리는 사람이 많습니다. 잠시 뒤 다시 눌러 주세요.")
     ip, today = q.get("_ip") or "?", time.strftime("%Y%m%d")
     if getattr(_CTX, "dev", False):              # 개발자(관리자 토큰 쿠키): 하루 횟수 제한 없음
-        return
+        return None
     used = RUNS.get((ip, today), 0)
     if used >= LIMITS["runs_per_day"]:
         raise ValueError(f"한 사람이 하루에 {LIMITS['runs_per_day']}번까지 만들 수 있습니다. 내일 다시 써 주세요. "
                          "더 필요하면 오른쪽 아래 '의견 보내기'로 알려 주세요.")
-    RUNS[(ip, today)] = used + 1
+    return (ip, today)
+
+
+def _refund(job):
+    """만들다 실패하면(오류·시간 초과) 하루 횟수를 돌려준다. 직접 '멈추기'를 누른 것은 돌려주지 않는다."""
+    key = getattr(job, "runkey", None)
+    if not key or not job.error or (job.cancelled and not job.timed_out):
+        return False
+    if RUNS.get(key, 0) > 0:
+        RUNS[key] -= 1
+    job.refunded = True
+    job.lines.append("만들지 못해서 오늘 횟수는 깎지 않았습니다.")
+    return True
+
+
+_SAMPLE_LOCK = threading.Lock()
+
+
+def _sample_zip():
+    """예시 도엽 zip 을 처음 한 번 만들어 두고 같은 것을 준다. 실제 수치지도가 아니라 지어낸 지형·건물·길."""
+    d = os.path.join(DATA if SERVER else HOME, "_sample")
+    zp = os.path.join(d, "예시도엽.zip")
+    with _SAMPLE_LOCK:
+        if not os.path.exists(zp):
+            import subprocess
+            import sys
+            os.makedirs(d, exist_ok=True)
+            tmp = zp + ".part"
+            subprocess.run([sys.executable, "-m", "contour_ai.sample_sheet", os.path.join(d, "shp"), tmp],
+                           check=True, cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           stdout=subprocess.DEVNULL)
+            os.replace(tmp, zp)
+            shutil.rmtree(os.path.join(d, "shp"), ignore_errors=True)
+    return zp
+
+
+def _interval(v):
+    """등고 간격(판 한 장 높이): 0.5~20m, 0.1m 단위로 맞춘다. 너무 촘촘하면 판이 수백 장이 되어 느려진다."""
+    try:
+        x = float(v or 5)
+    except (TypeError, ValueError):
+        x = 5.0
+    return round(min(20.0, max(0.5, x)), 1)
 
 
 def result_dir():
@@ -721,6 +779,8 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/vendor/"):
             p = os.path.normpath(os.path.join(WEB, path.lstrip("/")))
             return self._file(p) if p.startswith(os.path.join(WEB, "vendor")) else self._send(403, {})
+        if path == "/sample.zip":                    # 예시 도엽(지어낸 지형): 수치지도가 없는 첫 방문자도 바로 해 볼 수 있게 (v2.2)
+            return self._attach(open(_sample_zip(), "rb").read(), "예시도엽_지어낸지형.zip")
         if path == "/overview.png":
             src = _sources().get(q.get("id"))
             return self._file(os.path.join(src["work"], "overview.png")) if src else self._send(404, {})
@@ -732,13 +792,14 @@ class Handler(BaseHTTPRequestHandler):
             events = job.progress.events
             return self._send(200, dict(running=not job.done, done=job.done, error=job.error,
                                         lines=job.lines[since:], n=len(job.lines), out=job.out,
-                                        events=events[ev:], ne=len(events), cancelled=job.cancelled and not job.timed_out,
+                                        events=events[ev:], ne=len(events), cancelled=job.cancelled and not job.timed_out, refunded=getattr(job, "refunded", False),
                                         summary=job.summary, elapsed=round(time.time() - job.started),
                                         queue=job.queue_pos() if SERVER and not job.done else 0))
         if path.startswith("/result/"):
             d = result_dir()
             name = os.path.basename(path)
-            if not d or name not in ("model.glb", "preview_plan.png", "summary.json", "분석_경사.png", "분석_절성토.png"):
+            if not d or not (name in ("model.glb", "preview_plan.png", "summary.json", "분석_경사.png", "분석_절성토.png",
+                                      "site_diagram.svg") or re.fullmatch(r"section_\d+\.svg", name)):
                 return self._send(404, {})
             return self._file(os.path.join(d, name))
         if path == "/files":                   # 완성 화면의 파일 목록 (폴더 안 laser 등 하위 폴더도 하나로)
@@ -861,6 +922,13 @@ class Handler(BaseHTTPRequestHandler):
                         return self._send(400, {"error": str(e), "path": dest, "prep": True})
                     raise
             body = json.loads(self.rfile.read(n) or b"{}")
+            if u.path == "/section":           # 지형 단면 (v2.2): 지도에 그은 선 → 결과 폴더에 SVG·DXF
+                d = result_dir()
+                if not d or not os.path.exists(os.path.join(d, "section_data.npz")):
+                    raise ValueError("먼저 모델을 만들어 주세요. 단면은 만든 모델에서 잘라요.")
+                from .section import make_section
+                sv, dx, info = make_section(d, body["a"], body["b"], float(body.get("depth") or 200))
+                return self._send(200, dict(svg=sv, dxf=dx, **info))
             if u.path == "/site":              # 경로로 준 경계 파일, 또는 화면에서 찍은 점
                 src = _sources().get(body.get("source"))
                 if not src:

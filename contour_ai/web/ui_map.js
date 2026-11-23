@@ -3,18 +3,21 @@
 import {$, st} from './ui_common.js';
 import {drawSite, finishDraw} from './ui_prep.js';
 import {resize3d} from './ui_view3d.js';
+import {secClick} from './ui_section.js';
 
 // 2. 범위
 $('place').oninput=()=>{const xy=st.names[$('place').value]; if(xy){st.center=xy;drawSq();}};
 ['w','h','scale','interval'].forEach(k=>$(k).oninput=()=>{drawSq();texts();});
-function clampBox(){const s=st.src.sheet,w=+$('w').value||500,h=+$('h').value||500;
+function isCircle(){return st.shape==='circle';}
+function clampBox(){const s=st.src.sheet,w=+$('w').value||500,h=isCircle()?w:(+$('h').value||500);
   let x0=Math.min(Math.max(st.center[0]-w/2,s[0]),s[2]-w), y0=Math.min(Math.max(st.center[1]-h/2,s[1]),s[3]-h);
   return [x0,y0,x0+w,y0+h];}
 function drawSq(){if(!st.src) return; const s=st.src.sheet, im=$('map'), b=clampBox(), W=s[2]-s[0], H=s[3]-s[1];
   const sx=im.clientWidth/W, sy=im.clientHeight/H, q=$('sq');
-  Object.assign(q.style,{display:'block',left:(b[0]-s[0])*sx+'px',top:(s[3]-b[3])*sy+'px',width:(b[2]-b[0])*sx+'px',height:(b[3]-b[1])*sy+'px'});}
+  Object.assign(q.style,{display:'block',left:(b[0]-s[0])*sx+'px',top:(s[3]-b[3])*sy+'px',width:(b[2]-b[0])*sx+'px',height:(b[3]-b[1])*sy+'px',borderRadius:isCircle()?'50%':'0'});}
 $('map').ondblclick=()=>{if(st.drawing&&st.drawing.length>=3) finishDraw();};
 $('map').onclick=e=>{if(ZM.dragged){ZM.dragged=false;return;} const s=st.src.sheet, im=$('map'), r=im.getBoundingClientRect();
+  if(st.secLine&&st.secLine.length<2){secClick([s[0]+(e.clientX-r.left)/r.width*(s[2]-s[0]), s[3]-(e.clientY-r.top)/r.height*(s[3]-s[1])]); return;}
   if(st.drawing){
     const p=[s[0]+(e.clientX-r.left)/r.width*(s[2]-s[0]), s[3]-(e.clientY-r.top)/r.height*(s[3]-s[1])];
     if(e.detail>1) return;                         // 두 번 누르기의 둘째 누름은 점으로 넣지 않는다
@@ -27,13 +30,20 @@ window.addEventListener('resize',()=>{resetZoom();drawSq();drawSite();resize3d()
 // 02 범위: 대지가 있으면 '대지에 맞춤' 한 줄로 접고, '바꾸기'를 눌렀을 때만 숫자 칸을 연다
 
 function rangeView(){const w=+$('w').value, h=+$('h').value;
-  $('rsz').textContent=`${w} × ${h} m`;
+  $('rsz').textContent=isCircle()?`지름 ${w} m 원`:`${w} × ${h} m`;
   $('rhow').textContent=st.site&&!st.centerMoved?'· 대지에 맞춤':st.site?'· 지도에서 고른 자리':st.src?'· 지도를 눌러 가운데를 고르세요':'';
   $('rangeedit').hidden=!!st.site&&!st.rangeEdit; $('s2chg').hidden=!st.site||st.rangeEdit;}
 $('s2chg').onclick=()=>{st.rangeEdit=true; rangeView();};
-function texts(){const sc=+$('scale').value||1000, w=+$('w').value, h=+$('h').value, iv=+$('interval').value;
-  $('rangeinfo').textContent=`1:${sc} → ${+(w*1000/sc/10).toFixed(1)} × ${+(h*1000/sc/10).toFixed(1)} cm`; rangeView();
-  $('sheetinfo').textContent=`1:${sc}에서 ${iv}m = 판 두께 ${(iv*1000/sc).toFixed(1)}mm`;}
+function texts(){const sc=+$('scale').value||1000, w=+$('w').value, h=isCircle()?w:+$('h').value, iv=+$('interval').value;
+  $('rangeinfo').textContent=isCircle()?`1:${sc} → 지름 ${+(w*1000/sc/10).toFixed(1)} cm`:`1:${sc} → ${+(w*1000/sc/10).toFixed(1)} × ${+(h*1000/sc/10).toFixed(1)} cm`; rangeView();
+  $('sheetinfo').textContent=`1:${sc}에서 ${iv}m = 판 두께 ${(iv*1000/sc).toFixed(1)}mm`+(iv<1?' · 판이 많아 오래 걸려요':'');
+  document.querySelectorAll('#ivquick button').forEach(b=>b.classList.toggle('on',+b.dataset.v===iv));}
+// 범위 모양 (v2.2): 네모 / 원 — 원이면 가로 = 지름
+st.shape='square';
+document.querySelectorAll('#shapeseg button').forEach(b=>b.onclick=()=>{st.shape=b.dataset.v;
+  document.querySelectorAll('#shapeseg button').forEach(x=>x.classList.toggle('on',x===b));
+  $('hbox').hidden=isCircle(); $('wlab').textContent=isCircle()?'지름 (m)':'가로 (m)'; drawSq(); texts();});
+document.querySelectorAll('#ivquick button').forEach(b=>b.onclick=()=>{$('interval').value=b.dataset.v; $('interval').dispatchEvent(new Event('input'));});
 
 // 지도 확대 (v2.0): 휠 = 마우스 자리로 확대·축소, 끌기 = 이동, 누르기 = 가운데 고르기. 확대하면 보이는 부분을 선명하게 다시 그린다
 const ZM={k:1,x:0,y:0,drag:null,dragged:false,timer:null,req:0};

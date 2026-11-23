@@ -104,13 +104,16 @@ def terrace_regions(contours, interp, bbox, interval, min_area, cell=0.5, smooth
             # 계단식 대지(건물 터·논)도 평평한 단과 옹벽이 뭉개지지 않게
             w = np.maximum(w, keep_w(X, Y))
         Z = w * Z + (1 - w) * Zs if w.any() else Zs
-    base = math.floor(Z.min() / interval) * interval
-    top = math.floor(Z.max() / interval) * interval
+    # 0.1m 단위 간격(0.3m 등)도 쓰므로 높이는 k번째 판 = base + k·간격 으로 계산하고 반올림한다
+    # (간격을 계속 더하면 52.300000001 같은 오차가 쌓여 판 이름·높이가 어긋났다)
+    base = round(math.floor(Z.min() / interval + 1e-9) * interval, 6)
+    top = round(math.floor(Z.max() / interval + 1e-9) * interval, 6)
     gen = contourpy.contour_generator(X, Y, Z, fill_type="OuterOffset")
     regions = {base: clip}
     edge_w = 2 * smooth + cell
     edge_band = clip.difference(clip.buffer(-edge_w, join_style="mitre"))
-    lv = base + interval
+    k = 1
+    lv = round(base + interval, 6)
     while lv <= top + 1e-6:
         pts, offs = gen.filled(lv, np.inf)
         polys = []
@@ -137,7 +140,8 @@ def terrace_regions(contours, interp, bbox, interval, min_area, cell=0.5, smooth
                 break
             g = unary_union(ps)
             regions[lv] = g
-        lv += interval
+        k += 1
+        lv = round(base + k * interval, 6)
     return regions, base
 
 

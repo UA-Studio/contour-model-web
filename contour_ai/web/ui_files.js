@@ -14,6 +14,12 @@ drop.ondragover=e=>{e.preventDefault();drop.classList.add('on')};
 drop.ondragleave=()=>drop.classList.remove('on');
 drop.ondrop=e=>{e.preventDefault();drop.classList.remove('on');e.dataTransfer.files.length&&addFiles([...e.dataTransfer.files])};
 let loading=[];
+// 예시 도엽 (v2.2): 수치지도가 없는 첫 방문자도 바로 만들어 볼 수 있게. 서버의 지어낸 도엽 zip 을 받아 올린 파일처럼 넣는다
+$('samplebtn').onclick=async()=>{const b=$('samplebtn'); b.disabled=true; $('srcinfo').textContent='예시 도엽 준비 중…';
+  try{const r=await fetch('/sample.zip'); if(!r.ok) throw new Error(r.status);
+    const f=new File([await r.blob()],'예시도엽_지어낸지형.zip',{type:'application/zip'}); await addFiles([f]);}
+  catch(e){$('srcinfo').innerHTML='<span style="color:var(--err)">예시 도엽을 받지 못했어요. 잠시 뒤 다시 눌러 주세요.</span>';}
+  finally{b.disabled=false;}};
 const isSheet=f=>/\.zip$/i.test(f.name), isSiteF=f=>/\.(dxf|geojson|json|shp)$/i.test(f.name);
 async function addFiles(files){
   const zips=files.filter(isSheet), sites=files.filter(isSiteF), other=files.filter(f=>!isSheet(f)&&!isSiteF(f));
@@ -50,7 +56,7 @@ async function upload(files, add){
   renderList();
 }
 function renderList(){
-  const L=[];
+  const L=[]; $('samplebox').hidden=!!st.src||loading.length>0;
   if(st.src) for(const f of (st.src.files||[{name:st.src.file}]))
     L.push(`<li><span class="tag">도엽</span><span class="nm"><b>${esc(f.name)}</b><small>${f.sheet_no?'도엽 '+f.sheet_no:'수치지도'}</small></span><span class="okc">✓</span></li>`);
   for(const n of loading) L.push(`<li><span class="tag">도엽</span><span class="nm"><b>${esc(n)}</b><small>읽는 중…</small></span><span class="spin"></span></li>`);

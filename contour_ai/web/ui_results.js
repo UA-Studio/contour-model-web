@@ -16,12 +16,13 @@ const KIND={
   '.3dm':['render','Rhino 모델','3DM',1], '.skp':['render','스케치업 모델','SKP',1], '.dae':['render','스케치업에서 열기 (DAE)','DAE'],
   '.glb':['etc','미리보기 · 다른 3D 프로그램','GLB'], '.stl':['print','3D 프린트 (mm · 한 덩어리)','STL',1],
 };
-const NAMED2={'분석_경사.png':['ana','경사 분석도','PNG'],'분석_절성토.png':['ana','절토·성토 지도','PNG'],'분석_요약.csv':['ana','대지 분석 숫자표 (엑셀)','CSV'],
+const NAMED2={'terrain_photo.obj':['render','항공사진 지형 (OBJ · 블렌더·키샷·트윈모션)','OBJ'],'terrain_photo.glb':['render','항공사진 지형 (GLB)','GLB'],'terrain_photo.jpg':['etc','항공사진 지형 텍스처 (OBJ 와 같은 폴더에)','JPG'],'terrain_photo.mtl':['etc','항공사진 지형 재질 (OBJ 와 같은 폴더에)','MTL'],'plan_2d.dxf':['plan','2D 지형도 (CAD · 등고선·건물·도로·지적)','DXF',1],'site_diagram.svg':['plan','사이트 다이어그램 (일러스트레이터 · 피그마)','SVG',1],
+  'plan_2d_항공사진.jpg':['plan','2D 지형도에 붙는 항공사진 (DXF 와 같은 폴더에)','JPG'],'사용_안내.txt':['etc','파일별 단위·여는 법','TXT'],'section_data.npz':['etc','단면 만들기 자료 (지우지 마세요)','NPZ'],'분석_경사.png':['ana','경사 분석도','PNG'],'분석_절성토.png':['ana','절토·성토 지도','PNG'],'분석_요약.csv':['ana','대지 분석 숫자표 (엑셀)','CSV'],
   'preview_plan.png':['etc','평면 미리보기','PNG'],'road_marks_check.png':['etc','노면표시 확인 그림','PNG'],'street_trees.csv':['etc','가로수 목록','CSV'],
   'summary.json':['etc','모델 정보','JSON'],'model_sketchup_build.json':['etc','스케치업 만들기 자료 (확장 › 콘타 모델 만들기)','JSON'],
   'model_sketchup_info.json':['etc','스케치업 정보','JSON'],'스케치업_만들기.rb':['etc','스케치업 루비 스크립트','RB'],
   '스케치업_확장_설치파일(모델아님).rbz':['etc','스케치업 불러오기 확장 (모델 아님)','RBZ'],'스케치업에서_여는_법.txt':['etc','스케치업에서 여는 법','TXT']};
-const GRP=[['render','렌더 · 3D'],['laser','레이저 재단'],['print','3D 프린트'],['ana','대지 분석']];
+const GRP=[['render','렌더 · 3D'],['plan','2D 도면 · 다이어그램'],['laser','레이저 재단'],['print','3D 프린트'],['ana','대지 분석']];
 let resDir='';
 function mb(x){return x>1e6?`${(x/1e6).toFixed(1)} MB`:`${Math.max(1,Math.round(x/1e3))} KB`;}
 async function doneView(j){
@@ -37,7 +38,7 @@ async function doneView(j){
   const notes=[...new Set($('plog').textContent.split('\n').map(x=>x.trim()).filter(x=>/못해|못했|못 받|건너|추정|없어 /.test(x)&&x.length<160))].slice(0,6);
   $('dnotes').hidden=!notes.length; $('dnotesn').textContent=notes.length;
   $('dnotesl').innerHTML=notes.map(x=>`<li>${esc(x)}</li>`).join('');
-  const by={render:[],laser:[],print:[],ana:[],etc:[]};
+  const by={render:[],plan:[],laser:[],print:[],ana:[],etc:[]};
   const hasSkp=f.files.some(x=>/\.skp$/i.test(x.name));
   for(const x of f.files){
     if(x.dir){ if(x.name==='laser') by.laser.push({...x,label:`판 ${s.sheets??x.count}장 DXF`,ext:'DXF',pri:1,sub:`laser 폴더 · ${x.count}개 · ${mb(x.size)}`}); continue; }

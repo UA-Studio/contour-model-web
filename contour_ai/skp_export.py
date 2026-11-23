@@ -272,6 +272,7 @@ def write_sketchup(out_dir, regions, masses, origin, terrain_mesh=None, area_sol
         key = f"B{bi + 1:04d}"
         parts = []
         gname = f"{key} {title} {m['floors']}F"
+        tag = f"건물::{int(m['floors']):02d}층"      # 스케치업 태그도 Rhino 처럼 층수별 (v2.2)
         battrs = {**{k: str(v) for k, v in at.items()}, "층수(모델)": str(m["floors"]),
                   "높이(m)": str(round(m["top"] - m["base"], 2)), "층수출처": SOURCE_KO.get(m["source"], "추정")}
         fc = m.get("facade") or {}
@@ -281,14 +282,14 @@ def write_sketchup(out_dir, regions, masses, origin, terrain_mesh=None, area_sol
                 for mat, mesh in fm.items():
                     rgb, tr_ = MATERIALS[mat]
                     parts.append((mesh, rgb, mat, 1 - tr_))
-                    J.mesh(f"건물::{use}", gname, mesh, rgb, mat, alpha=1 - tr_, attrs=battrs)
+                    J.mesh(tag, gname, mesh, rgb, mat, alpha=1 - tr_, attrs=battrs)
                 continue
             if part[1] == "ext":
                 if fc:
                     mat_ = material_of(m, part[0]); rgb_ = MATERIALS[mat_][0]
                 else:
                     mat_, rgb_ = None, (tuple(int(c * 0.85) for c in color) if part[0] == "roof" else color)
-                J.ext(f"건물::{use}", gname, _shift(part[2], origin), part[3], part[4], rgb_, mat_, attrs=battrs)
+                J.ext(tag, gname, _shift(part[2], origin), part[3], part[4], rgb_, mat_, attrs=battrs)
                 mm = extrude(part[2], part[3], part[4])
             elif part[1] == "mesh":
                 mm = part[2].copy(); mm.apply_translation([-origin[0], -origin[1], 0])
@@ -296,7 +297,7 @@ def write_sketchup(out_dir, regions, masses, origin, terrain_mesh=None, area_sol
                     mat_ = material_of(m, part[0]); rgb_ = MATERIALS[mat_][0]
                 else:
                     mat_, rgb_ = None, (tuple(int(c * 0.85) for c in color) if part[0] == "roof" else color)
-                J.mesh(f"건물::{use}", gname, mm, rgb_, mat_, attrs=battrs)
+                J.mesh(tag, gname, mm, rgb_, mat_, attrs=battrs)
             else:
                 continue
             if mm is not None:
@@ -306,7 +307,7 @@ def write_sketchup(out_dir, regions, masses, origin, terrain_mesh=None, area_sol
                 else:
                     parts.append((mm, tuple(int(c * 0.85) for c in color) if part[0] == "roof" else color))
         if parts:
-            d.add(f"건물::{use}", f"{key} {title} {m['floors']}F", parts)
+            d.add(tag, f"{key} {title} {m['floors']}F", parts)
             info[key] = {**{k: str(v) for k, v in at.items()}, "층수(모델)": str(m["floors"]),
                          "높이(m)": str(round(m["top"] - m["base"], 2)),
                          "층수출처": SOURCE_KO.get(m["source"], "추정"),
@@ -411,7 +412,7 @@ HOWTO = """스케치업에서 콘타 모델 여는 법
 
 [매번] 모델 불러오기
   확장 프로그램 > 콘타 모델 > 콘타 모델 불러오기 (.dae → .skp) > model_sketchup.dae 선택
-  - 레이어 구조대로 태그(지형 / 길 / 건물 > 용도 / 나무)가 붙고, 건물마다 수치지도 정보가 들어갑니다.
+  - 레이어 구조대로 태그(지형 / 길 / 건물 > 05층처럼 층수별 / 나무)가 붙고, 건물마다 수치지도 정보가 들어갑니다.
   - 대지·경사면·곡면 위 길의 삼각형 모서리는 부드럽게 숨깁니다.
   - 같은 폴더에 model_sketchup.skp 로 저장됩니다.
 

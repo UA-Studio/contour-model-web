@@ -10,7 +10,7 @@
 <div class="app">
 <aside>
  <div class="sb-head">
-  <div><h1>콘타 모델 만들기</h1><p class="ver">v2.0.3 · 2026-11-18</p></div>
+  <div><h1>콘타 모델 만들기</h1><p class="ver">v2.2.0 · 2026-11-23</p></div>
   <button type="button" class="keybtn" id="keybtn" aria-haspopup="dialog"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M15 8l2 2"/></svg>인증키 <span id="keycount">0/4</span></button>
  </div>
  <div class="sb-scroll" id="setup">
@@ -19,6 +19,7 @@
     <div class="drop" id="drop"><span class="big1">수치지도 <strong>zip</strong>과 대지 도면 <strong>DXF</strong>를<br>한꺼번에 끌어 놓거나 눌러서 고르세요</span><span class="small1">+ 파일 더 넣기 (옆 도엽 zip · 대지 DXF)</span>
       <input type="file" id="file" accept=".zip,.dxf,.geojson,.json,.shp" multiple hidden>
       <div class="hint">국토정보플랫폼 수치지도 2.0 (SHP) zip · 순서는 상관없어요 · 옆 도엽은 여러 개 함께</div></div>
+    <div class="sample" id="samplebox">수치지도가 아직 없나요? <button type="button" class="lk2" id="samplebtn">예시 도엽으로 해 보기</button><small>지어낸 지형·건물·길이라 실제 장소가 아니에요</small></div>
     <ul class="fl" id="flist"></ul>
     <div class="info" id="srcinfo"></div>
     <div class="info" id="siteres"></div>
@@ -32,9 +33,12 @@
     <label for="place">가운데 건물·지명 (또는 오른쪽 지도 클릭)</label>
     <input type="text" id="place" list="names" placeholder="예: 삼선푸르지오, 한성대학교" disabled>
     <datalist id="names"></datalist>
+    <div class="seg3" id="shapeseg" style="grid-template-columns:1fr 1fr;margin:10px 0 2px" title="원: 지름만큼 둥근 모형(판·건물·길이 원 밖에서 잘림)">
+      <button type="button" data-v="square" class="on">네모</button><button type="button" data-v="circle">원</button>
+    </div>
     <div class="row">
-      <div><label for="w">가로 (m)</label><input type="number" id="w" value="500" min="50" step="50"></div>
-      <div><label for="h">세로 (m)</label><input type="number" id="h" value="500" min="50" step="50"></div>
+      <div><label for="w" id="wlab">가로 (m)</label><input type="number" id="w" value="500" min="50" step="50"></div>
+      <div id="hbox"><label for="h">세로 (m)</label><input type="number" id="h" value="500" min="50" step="50"></div>
     </div>
     </div>
   </section>
@@ -48,6 +52,10 @@
       <button type="button" role="radio" data-p="custom" title="아래 항목을 하나씩 켜고 끄기">직접</button>
     </div>
     <p class="pdesc" id="pdesc"></p>
+    <div class="outlab">받을 파일 <small>고른 것만 만들어요 · 3D 보기는 항상</small></div>
+    <div class="chips" id="outchips" role="group" aria-label="받을 파일">
+      <button type="button" data-k="rhino" class="on" title="렌더용 Rhino 모델 model.3dm">Rhino</button><button type="button" data-k="laser" class="on" title="판마다 레이저 재단 DXF">레이저</button><button type="button" data-k="print" class="on" title="3D 프린트용 닫힌 솔리드 model.stl">3D 프린트</button><button type="button" data-k="sketchup" class="on" title="스케치업 파일 (.dae · 불러오기 확장)">스케치업</button><button type="button" data-k="plan" class="on" title="2D 지형도 DXF · 사이트 다이어그램 SVG">2D 도면</button><button type="button" data-k="photo" class="on" title="항공사진을 입힌 지형 OBJ · GLB (항공사진이 있을 때)">사진 지형</button>
+    </div>
 
     <details class="more" id="optdet"><summary>세부 설정 · 지형 · 디테일 · 넣을 것</summary>
     <div class="grp">지형</div>
@@ -81,7 +89,8 @@
       <summary>세부 설정 <span class="sum" id="moresum">1:1000 · 판 5 m</span></summary>
       <div class="row">
         <div><label for="scale">축척 1 :</label><input type="number" id="scale" value="1000" step="100"></div>
-        <div><label for="interval">판 한 장 높이 (m)</label><input type="number" id="interval" value="5" step="1" min="1"></div>
+        <div><label for="interval">등고 간격 = 판 한 장 높이 (m)</label><input type="number" id="interval" value="5" step="0.1" min="0.5" max="20">
+          <div class="seg ivq" id="ivquick"><button type="button" data-v="1">1</button><button type="button" data-v="2">2</button><button type="button" data-v="5">5</button></div></div>
       </div>
       <div class="info" id="sheetinfo">1:1000에서 5m = 판 두께 5mm</div>
       <div class="row">
@@ -196,6 +205,7 @@
     </section></div>
     <div class="pane on" id="pmap">
       <div class="empty" id="mapempty">수치지도 zip을 넣으면 도엽 전체 지도가 여기에 나옵니다.<br>지도를 클릭해 모델 가운데를 고르세요.</div>
+      <div id="secbar" hidden><b>단면</b><button type="button" id="secbtn">단면선 긋기</button><label>뒤쪽 깊이 <input type="number" id="secdepth" value="200" min="0" max="1000" step="10"> m</label><button type="button" class="pri" id="secgo" disabled>단면 만들기</button><small id="secinfo">모델을 만든 뒤 지도에 선을 그으면 단면 SVG·DXF를 만들어요</small></div>
       <div id="zoomui" hidden><div><button type="button" id="zin" title="확대">+</button><button type="button" id="zout" title="축소">−</button><button type="button" class="w" id="zfit">전체</button></div><small id="zhint">휠로 확대 · 끌어서 이동 · 누르면 가운데</small></div>
       <div id="mapwrap" hidden><div id="mapbox"><img id="map" alt="도엽 지도" draggable="false"><img id="tile" alt=""><div id="sq"></div><svg id="siteov" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></svg><div id="drawtip" hidden>꼭짓점을 차례로 누르세요 · 첫 점을 다시 누르면 닫힘 · Esc 취소 · Backspace 한 점 지움</div></div></div>
     </div>
@@ -203,7 +213,14 @@
     <div class="pane" id="pplan"><div class="empty" id="planempty">모델을 만들면 평면 미리보기가 나옵니다.</div><div id="planvw" hidden role="tablist" aria-label="평면 그림 고르기"></div><img id="plan" hidden alt="평면 미리보기"></div>
     <div class="pane" id="p3d"><div class="empty" id="threeempty">모델을 만들면 3D로 돌려 볼 수 있습니다.</div><div id="three" style="position:absolute;inset:0"></div>
       <div class="legend" id="legend" hidden>드래그 회전 · 오른쪽 드래그 이동 · 휠 확대</div>
-      <div class="treetg" id="treetg" hidden><button type="button" id="tgtree">나무 보이기</button></div></div>
+      <div class="treetg" id="treetg" hidden role="group" aria-label="3D 보기 레이어 켜고 끄기"></div>
+      <button type="button" class="sunbtn" id="sunbtn" hidden>해 그림자</button>
+      <div class="sunpanel" id="sunpanel" hidden role="group" aria-label="해 그림자 보기">
+        <div class="seg sund" id="sundays"><button type="button">춘분</button><button type="button" class="on">하지</button><button type="button">추분</button><button type="button">동지</button></div>
+        <label class="sunh">시각 <input type="range" id="sunhour" min="6" max="19" step="0.25" value="14"></label>
+        <div class="sunrow"><span id="suninfo"></span><button type="button" id="sunpath">해 궤적</button><button type="button" class="pri" id="sunsave">그림 저장</button></div>
+        <small>설계 검토용 그림자예요. 법정 일조 검토를 대신하지 않아요.</small>
+      </div></div>
     <div class="pane" id="plaw" style="overflow:auto;padding:24px 28px"><div class="empty" id="lawempty">왼쪽 '대지 옵션 · 법규 검토'를 펼쳐 주소를 넣고 '법규 검토'를 누르세요.</div><div id="lawbody"></div></div>
     <pre class="pane" id="plog"></pre>
     <div id="rsub" hidden role="tablist" aria-label="결과 보기"></div>

@@ -111,6 +111,8 @@ def load_shp(folder, bbox):
             if g.intersects(clip):
                 if kind == "roads" and g.geom_type.endswith("Polygon"):
                     data["road_areas"].append(make_valid(g))     # 계단식 대지: 길 면은 터가 넘지 않는다
+                if kind == "water" and g.geom_type.endswith("Polygon"):
+                    data["water_areas"].append(make_valid(g))    # 2D 지형도·다이어그램·영역별 지형 (v2.2)
                 line = g.boundary if g.geom_type.endswith("Polygon") else g
                 data[kind].append(line.intersection(clip))
     return data

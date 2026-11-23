@@ -25,7 +25,7 @@ SITE_GROOVE_W = 1.0     # 대지 경계 홈 폭 (모형 mm)
 SITE_GROOVE_D = 0.6     # 지형 면에서 파 들어가는 깊이 (모형 mm)
 
 
-def print_solid(regions, masses, origin, scale=1000.0, field=None, combo=False, tick=None, site=None):
+def print_solid(regions, masses, origin, scale=1000.0, field=None, combo=False, tick=None, site=None, circle=None):
     """3D 프린트용 한 덩어리 솔리드(물샐틈없는 메시, 단위 mm, 모형 크기 그대로, 왼쪽 아래 바닥 = 0,0,0).
 
     지형(경사면은 높이 격자, 계단판은 판 돌출)과 건물 매스를 불리언 합집합으로 합친다. 나무·가로등·노면표시·
@@ -96,6 +96,10 @@ def print_solid(regions, masses, origin, scale=1000.0, field=None, combo=False, 
                 parts.append(m)
     T("STL 합치기 (구멍·겹침 없는 한 덩어리로)")
     solid = mf.Manifold.batch_boolean(parts, mf.OpType.Add) if len(parts) > 1 else parts[0]
+    if circle is not None:                 # 원형 범위 (v2.2): 원기둥과 교집합
+        cyl = _mf_extrude(circle, base_z - 10.0, base_z + 10000.0, origin)
+        if cyl is not None:
+            solid = solid ^ cyl
     try:      # 평평한 판 윗면의 잔 삼각형 줄이기 (모양 차이 0.02mm 이내, 물샐틈없는 상태는 그대로)
         solid = solid.simplify(0.02 / mm)
     except Exception:
@@ -146,7 +150,7 @@ def _unpinch(v, f, eps=0.01):
 
 def write_stl(path, regions, masses, origin, areas=(), trees=(), terrain_mesh=None, area_meshes=(),
               steps_too=False, floor_height=FLOOR_HEIGHT, inlays=(), lights=(), structs=(), tree_style="species",
-              roadbits=(), site_mesh=None, tick=None, scale=1000.0, field=None, site_poly=None):
+              roadbits=(), site_mesh=None, tick=None, scale=1000.0, field=None, site_poly=None, circle=None, stl=True):
     from .building_detail import building_parts
     from .paths_trees import PATH_STYLE, TREE
     T = tick or (lambda *a, **k: None)
@@ -215,14 +219,16 @@ def write_stl(path, regions, masses, origin, areas=(), trees=(), terrain_mesh=No
             tree_meshes.append(trimesh.util.concatenate([c, t]))
     # 3D 프린트용 STL: 지형 + 건물을 한 덩어리 솔리드로, 단위 mm·모형 크기 그대로 (v2.0)
     t0 = time.time()
-    scene = print_solid(regions, masses, origin, scale, field, steps_too, tick=T, site=site_poly)
-    T("STL 저장")
-    scene.export(path)
-    if os.environ.get("CONTOUR_TIMING"):
-        print(f"STL print solid {time.time() - t0:.1f}s faces {len(scene.faces)} watertight {scene.is_watertight}")
-    op, nm, fl = stl_check(scene.vertices, scene.faces)
-    if op or nm:
-        print(f"STL 검사: 열린 모서리 {op}, 꼬인 모서리 {nm}, 납작한 삼각형 {fl}")
+    scene = None
+    if stl:                                  # 받을 파일에서 3D 프린트를 끄면 STL 은 건너뛴다 (v2.2). GLB 는 늘
+        scene = print_solid(regions, masses, origin, scale, field, steps_too, tick=T, site=site_poly, circle=circle)
+        T("STL 저장")
+        scene.export(path)
+        if os.environ.get("CONTOUR_TIMING"):
+            print(f"STL print solid {time.time() - t0:.1f}s faces {len(scene.faces)} watertight {scene.is_watertight}")
+        op, nm, fl = stl_check(scene.vertices, scene.faces)
+        if op or nm:
+            print(f"STL 검사: 열린 모서리 {op}, 꼬인 모서리 {nm}, 납작한 삼각형 {fl}")
     T("미리보기 GLB")
     # 미리보기용 GLB (지형 회색, 건물 흰색)
     terr = trimesh.util.concatenate(meshes[:n_step] if steps_too else meshes[:n_terr])

@@ -384,6 +384,11 @@ def run(source, out_dir, name=None, latlon=None, xy=None, size=500, green=True, 
                    satellite=bool(ndvi), aerial_trees=bool(aerial), seconds=round(time.time() - t0, 1))
     json.dump(summary, open(os.path.join(out_dir, "summary.json"), "w", encoding="utf-8"),
               indent=1, ensure_ascii=False)
+    try:                                   # 결과 폴더에 프로그램별 단위·여는 법 안내 (v2.2)
+        from .guide import write_guide
+        write_guide(out_dir, summary, scale=opts.get("scale", 1000), interval=opts.get("interval", 5))
+    except Exception as e:
+        log(f"   (사용 안내 파일을 쓰지 못했습니다: {type(e).__name__}: {e})")
     shutil.rmtree(work, ignore_errors=True)
     t = round(summary["seconds"])
     log(f"끝났습니다 ({f'{t // 60}분 {t % 60}초' if t >= 60 else f'{t}초'}). 결과 폴더: {out_dir}")

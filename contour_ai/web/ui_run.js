@@ -18,7 +18,7 @@ window.mode=mode;
 function collect(){
   // 결과 폴더 이름: 대지 이름 → 가운데 지명 → 도엽 번호
   const label=(st.site&&st.site.label?String(st.site.label).replace(/\.[^.]+$/,''):'')||$('place').value||st.src.label||st.src.file.replace(/\.zip$/i,'');
-  return {source:st.src.id, xy:st.center, w:+$('w').value, h:+$('h').value, scale:+$('scale').value, interval:+$('interval').value,
+  return {source:st.src.id, xy:st.center, w:+$('w').value, h:st.shape==='circle'?+$('w').value:+$('h').value, shape:st.shape||'square', outputs:[...document.querySelectorAll('#outchips button.on')].map(b=>b.dataset.k), scale:+$('scale').value, interval:+$('interval').value,
     terrain:$('terrain').value, terrain_fit:(document.querySelector('#fitseg button.on')||{}).dataset?.v||'smooth', green:$('green').checked, pads:$('pads').checked, street_trees:$('street').checked, floor_height:+$('floor').value,
     tree_hole:+$('hole').value, vworld_key:$('vkey').value||$('vkey2').value, data_key:$('dkey').value, vworld_domain:$('vdomain').value, aerial_file:$('afile').value, lights:$('lights').checked, detail:+$('detail').value, facade_radius:$('fradius').value?+$('fradius').value:null, structures:$('structs').checked, light_file:$('lfile').value, road_detail:$('roadx').checked, road_files:$('rfile').value, hd_dir:$('hddir').value.trim(), dem_files:$('demfile').value.trim()||null, seoul_key:$('skey').value, safemap_key:$('smkey').value, seoul_service:$('ssvc').value, safemap_layer:$('smlayer').value, safemap_light_layer:$('smlight').value, seoul_code:$('scode').value, site_address:(st.site&&st.site.kind==='addr'||$('lawbody').innerHTML)?($('saddr').value.trim()||null):null, site_file:st.site&&st.site.kind==='file'?st.site.path:null, site_ring:st.site&&st.site.kind==='draw'?st.site.ring:null, site_clear:!!st.site&&$('siteclear').checked, site_keep_terrain:!!st.site&&$('sitekeep').checked, road_thickness:+$('roadt').value, sketchup:$('skp').checked, year:$('year').value||null, out:$('out').value.trim()||null, label};
 }
@@ -99,7 +99,7 @@ async function poll(){
   lastRun=null;
   clearInterval(st.timer); $('stop').disabled=false; $('stop').textContent='멈추기'; st.live.finish(!j.error&&!j.cancelled, j.cancelled?'멈추기를 눌러 멈췄어요.':(j.error?friendly(j.error).what:''));
   if(j.cancelled){mode('setup'); setStatus('run','멈췄어요. 설정을 바꿔 다시 만들 수 있어요.'); return;}
-  if(j.error){mode('setup'); showErr(friendly(j.error)); return;}
+  if(j.error){mode('setup'); const f=friendly(j.error); if(j.refunded) f.how+=' 이번 실패는 오늘 만들기 횟수에서 빼지 않았어요.'; showErr(f); return;}
   doneView(j);
   planViews((j.summary||{}).analysis);
   load3d();

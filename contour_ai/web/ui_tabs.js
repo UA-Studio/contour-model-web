@@ -3,6 +3,7 @@
 import {createLive} from './live.js';
 import {$, st} from './ui_common.js';
 import {resize3d} from './ui_view3d.js';
+import {secBarSync} from './ui_section.js';
 
 st.live=createLive($('plive'));
 
@@ -14,7 +15,7 @@ function show(p){if(p==='res') p=st.lastRes; if(st.RES.includes(p)) st.lastRes=p
   document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x.dataset.p===p||(x.dataset.p==='res'&&st.RES.includes(p))));
   document.querySelectorAll('.pane').forEach(x=>x.classList.toggle('on',x.id===p));
   $('rsub').hidden=!st.RES.includes(p); $('recent').hidden=!(st.RES.includes(p)&&p!=='plog'&&st.recentItems.length);
-  $('zoomui').hidden=!(p==='pmap'&&st.src); rsubSync(); if(p==='p3d') resize3d();}
+  $('zoomui').hidden=!(p==='pmap'&&st.src); secBarSync(p); rsubSync(); if(p==='p3d') resize3d();}
 
 function rsubRender(an){
   st.RSUB=[['평면','pplan','preview_plan.png']];

@@ -118,6 +118,9 @@ function drawSite(){const ov=$('siteov'); if(!ov) return; ov.innerHTML=''; if(!s
   if(st.drawing&&st.drawing.length){
     h+=`<polyline points="${st.drawing.map(P).join(' ')}" fill="rgba(29,78,216,.18)" stroke="#111" stroke-width="${sw}" stroke-dasharray="5 3"/>`;
     h+=st.drawing.map((p,i)=>{const [x,y]=P(p).split(',');return `<circle cx="${x}" cy="${y}" r="${i?3.5:5.5}" fill="${i?'#111':'#1d4ed8'}" stroke="#fff" stroke-width="1.5"/>`}).join('');}
+  if(st.secLine&&st.secLine.length){   // 단면선 A–A'
+    const q=st.secLine.map(P); h+=`<polyline points="${q.join(' ')}" fill="none" stroke="#2563eb" stroke-width="${sw*1.5}"/>`;
+    h+=q.map((pt,i)=>{const [x,y]=pt.split(',');return `<circle cx="${x}" cy="${y}" r="${4/(window.ZMK||1)}" fill="#2563eb" stroke="#fff" stroke-width="${1.5/(window.ZMK||1)}"/><text x="${+x+6/(window.ZMK||1)}" y="${+y-6/(window.ZMK||1)}" font-size="${12/(window.ZMK||1)}" fill="#2563eb" font-weight="700">${i?"A'":'A'}</text>`;}).join('');}
   ov.innerHTML=h;}
 
 export {drawSite, finishDraw};

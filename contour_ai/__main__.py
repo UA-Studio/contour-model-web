@@ -36,6 +36,8 @@ def main():
     m.add_argument("--site", help="검토할 대지 주소. 브이월드 키와 함께 주면 토지이용계획으로 법규 1차 검토(법규검토.md)와 대지 경계·정북일조 사선을 넣음")
     m.add_argument("--site-file", help="대지 경계 파일(DXF 닫힌 폴리선, SHP·zip, GeoJSON). 모델에 경계를 넣고 대지를 가운데로 잡음")
     m.add_argument("--dem", nargs="*", default=[], help="수치표고모델(DEM) 파일·zip·폴더. 5m 이하 격자면 등고선 대신 이 높이로 지형을 만듦")
+    m.add_argument("--only", help="받을 파일만 (쉼표로): rhino,laser,print,sketchup,plan,photo. 3D 보기 GLB 는 늘 만듦")
+    m.add_argument("--circle", action="store_true", help="원형 범위: 가로(--size 첫 값)를 지름으로 둥근 모형")
     m.add_argument("--exact-terrain", action="store_true", help="등고선 그대로: 지형 다듬기를 줄여 절토면·옹벽 같은 꺾임을 살림")
     m.add_argument("--no-pads", action="store_true", help="계단식 대지 끄기: 비탈의 건물 터·논을 평평한 단으로 만들지 않고 등고선 보간 그대로")
     m.add_argument("--parcel-file", help="연속지적도 SHP(zip·폴더). 계단식 대지가 필지 경계대로 단을 나눔 (없으면 브이월드 키로 받음)")
@@ -63,12 +65,12 @@ def main():
     m.add_argument("--facade-radius", type=float, help="이 반경(m) 안 건물만 창문을 냄 (기본: 전부)")
     m.add_argument("--no-sketchup", action="store_true", help="스케치업용 파일 생략")
     a = ap.parse_args()
-    size = a.size[0] if len(a.size) == 1 else tuple(a.size[:2])
+    size = a.size[0] if (len(a.size) == 1 or a.circle) else tuple(a.size[:2])
     from .pipeline import run
     s = run(a.source if len(a.source) > 1 else a.source[0], a.out, name=a.name, latlon=a.latlon, xy=a.xy, size=size, green=not a.no_green,
             year=a.year, scale=a.scale, interval=a.interval, terrain=a.terrain, floor_height=a.floor_height,
             no_trees=a.no_trees, tree_hole=a.tree_hole, road_thickness=a.road_thickness,
-            sketchup=not a.no_sketchup, vworld_key=a.vworld_key, vworld_domain=a.vworld_domain, data_key=a.data_key, site_address=a.site, site_file=a.site_file, site_clear=a.site_clear, site_keep_terrain=a.site_keep_terrain, dem_files=a.dem or None, terrain_fit="exact" if a.exact_terrain else "smooth", pads=not a.no_pads, parcel_file=a.parcel_file,
+            sketchup=not a.no_sketchup, vworld_key=a.vworld_key, vworld_domain=a.vworld_domain, data_key=a.data_key, site_address=a.site, site_file=a.site_file, site_clear=a.site_clear, site_keep_terrain=a.site_keep_terrain, dem_files=a.dem or None, terrain_fit="exact" if a.exact_terrain else "smooth", shape="circle" if a.circle else "square", outputs=[x.strip() for x in a.only.split(",") if x.strip()] if a.only else None, pads=not a.no_pads, parcel_file=a.parcel_file,
             aerial_file=a.aerial, lights=not a.no_lights, facade=not a.no_facade, detail=a.detail, structures=not a.no_structures, facade_radius=a.facade_radius, light_files=tuple(a.lights_file),
             road_detail=not a.no_road_detail, road_files=tuple(a.road_files),
             seoul_key=a.seoul_key, safemap_key=a.safemap_key, seoul_service=a.seoul_service, safemap_layer=a.safemap_layer,
