@@ -198,7 +198,7 @@ class SkpJson:
 
 def write_sketchup(out_dir, regions, masses, origin, terrain_mesh=None, area_solids=(), inlays=(),
                    areas=(), trees=(), steps_too=False, floor_height=3.3, lights=(), structs=(),
-                   tree_style="species", roadbits=(), site_lines=(), log=print, make_skp=True):
+                   tree_style="species", roadbits=(), site_items=(), log=print, make_skp=True):
     """out_dir 에 model_sketchup.dae · model_sketchup_build.json · model_sketchup_info.json · 확장 설치파일(.rbz)
     · 여는 법(.txt) 을 쓰고, 이 PC 에 스케치업이 있으면 스케치업을 띄워 model_sketchup.skp(2021 형식)까지 만든다."""
     from .building_detail import building_parts
@@ -377,9 +377,15 @@ def write_sketchup(out_dir, regions, masses, origin, terrain_mesh=None, area_sol
                     [[c, -sn, 0, x - origin[0]], [sn, c, 0, y - origin[1]], [0, 0, 1, z], [0, 0, 0, 1]])
         for grp, items in by.items():
             d.add_raw(f"가로등::{grp}", "".join(items))
-    for name, xyz in site_lines:
-        J.line("대지::경계", name, np.column_stack([np.asarray(xyz)[:, 0] - origin[0], np.asarray(xyz)[:, 1] - origin[1],
-                                                 np.asarray(xyz)[:, 2]]))
+    # 검토 대지 표시 (site_overlay.py): 선은 스케치업 모서리(태그 대지::…), 정북일조 사선은 반투명 면
+    for it in site_items:
+        if it["kind"] == "curve":
+            xyz = np.asarray(it["xyz"], float)
+            J.line(it["layer"], it["name"], np.column_stack([xyz[:, 0] - origin[0], xyz[:, 1] - origin[1], xyz[:, 2]]))
+        else:
+            m = it["mesh"].copy(); m.apply_translation([-origin[0], -origin[1], 0])
+            J.mesh(it["layer"], it["name"], m, it["rgb"], alpha=0.4, attrs=it["attrs"])
+            d.add(it["layer"], it["name"], [(m, it["rgb"], None, 0.4)])
     dae = os.path.join(out_dir, "model_sketchup.dae")
     d.write(dae)
     build = J.write(os.path.join(out_dir, "model_sketchup_build.json"))

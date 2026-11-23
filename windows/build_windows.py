@@ -22,6 +22,8 @@ TOP = "콘타모델_윈도우"
 SKIP_STD = {"site-packages", "test", "idlelib", "tkinter", "turtledemo", "ensurepip", "lib2to3", "__pycache__", "venv",
             "pydoc_data"}
 SKIP_APP = ("__pycache__", "*.pyc")
+# v2.2 윈도우판은 스케치업 파일만 만든다 → Rhino(3dm) 라이브러리는 넣지 않는다 (contour_model.OUTPUTS_DEFAULT)
+SKIP_PKGS = {"rhino3dm"}
 
 
 def _ver():
@@ -70,8 +72,11 @@ def main(out_dir):
             shutil.copy2(src, py / name)
     # 2) 라이브러리 (서버판과 같은 버전)
     sp = lib / "site-packages"
+    req = out_dir / "requirements-windows.txt"
+    req.write_text("".join(l for l in (ROOT / "requirements-server.txt").read_text(encoding="utf-8").splitlines(True)
+                           if l.split("==")[0].strip().lower() not in SKIP_PKGS), encoding="utf-8")
     subprocess.run([sys.executable, "-m", "pip", "install", "--no-compile", "--no-warn-script-location",
-                    "--only-binary", ":all:", "--target", str(sp), "-r", str(ROOT / "requirements-server.txt")],
+                    "--only-binary", ":all:", "--target", str(sp), "-r", str(req)],
                    check=True)
     shutil.rmtree(sp / "bin", ignore_errors=True)
     # 2-1) 실행에 쓰지 않는 파일 덜어 내기 (C 소스·시험 폴더·안 쓰는 scipy 묶음 등, windows/slim.py)

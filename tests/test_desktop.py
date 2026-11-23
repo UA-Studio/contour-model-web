@@ -92,7 +92,7 @@ def test_내_PC_판_흐름(tmp_path, fake_sheet, fake_site):
         outs = []
         for i, label in enumerate(("PC시험1", "PC시험2")):
             body = dict(source=src["id"], w=300, h=300, green=False, detail=2, site_file=saved["saved"],
-                        sketchup=True, lights=False, road_detail=False, label=label)
+                        lights=False, road_detail=False, label=label)   # 출력 형식은 화면 기본(스케치업만)
             st, j = _call(base, "/run", json.dumps(body).encode())
             assert st == 200, f"{i + 1}번째 만들기 거절: {j}"
             t0 = time.time()
@@ -106,9 +106,10 @@ def test_내_PC_판_흐름(tmp_path, fake_sheet, fake_site):
             outs.append(Path(r["out"]))
             st, files = _call(base, "/files")
             names = {f["name"] for f in files["files"]}
-            assert {"model.3dm", "model.stl"} <= names, names
+            assert {"model_sketchup.dae", "model_sketchup_build.json", "model.glb"} <= names, names
+            assert not names & {"model.3dm", "model.stl", "laser"}, names   # v2.2: 스케치업만
         for o in outs:
-            assert (o / "summary.json").is_file() and (o / "model.3dm").is_file(), o
+            assert (o / "summary.json").is_file() and (o / "model_sketchup.dae").is_file(), o
             assert o.parent == home / "콘타모델", o
         st, rec = _call(base, "/recent")
         assert st == 200 and len(rec["items"]) >= 2, rec

@@ -87,7 +87,7 @@ def test_사이트_흐름_대지파일_정리_후_두번_다시_만들기(tmp_pa
         assert os.path.isfile(std)
         # 5) 만들기 ×3 (하루 1번 제한이지만 개발자 모드라 통과해야 함), 매번 같은 대지 파일
         body = dict(source=src["id"], w=300, h=300, green=False, detail=1, terrain_fit="exact", site_file=std,
-                    sketchup=False, lights=False, road_detail=False, label="흐름시험")
+                    outputs=["3dm"], lights=False, road_detail=False, label="흐름시험")
         outs = []
         for i in range(3):
             st, j = _call(base, "/run", cookie, json.dumps(body).encode())

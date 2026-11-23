@@ -72,3 +72,44 @@ def test_계단식_대지(basic_model):
     assert p, "계단식 대지 요약이 없음"
     assert p["buildings"] > 50 and p["pads"] > 10
     assert p["paddies"] >= 1
+
+
+def test_기본값은_스케치업만(skp_model):
+    """v2.2 기본: 스케치업 파일(+결과 화면용 미리보기 GLB·그림)만. Rhino·STL·레이저 DXF 는 만들지 않는다."""
+    out, s = skp_model
+    f = _files(out)
+    for name in ("model_sketchup.dae", "model_sketchup_build.json", "model.glb", "preview_plan.png", "summary.json"):
+        assert name in f, f"{name} 이 없음"
+    assert not {"model.3dm", "model.stl"} & set(f), sorted(f)
+    assert not any(n.startswith("laser/") for n in f), "레이저 판이 만들어짐"
+    assert s["outputs"] == ["skp"] and s["sheets"] is None
+
+
+def test_스케치업에_대지_표시가_들어감(skp_model):
+    """Rhino 에만 들어가던 대지 경계·레벨판 등이 스케치업 태그 '대지::…' 로 들어간다."""
+    out, s = skp_model
+    assert s.get("site"), "대지 정보가 요약에 없음"
+    doc = json.loads((out / "model_sketchup_build.json").read_text(encoding="utf-8"))
+    tags = {ln["tag"] for ln in doc["lines"]}
+    assert {"대지::경계", "대지::경계(지형 위)"} <= tags, tags
+    assert all(len(ln["p"]) % 3 == 0 and len(ln["p"]) >= 6 for ln in doc["lines"])
+
+
+def test_rhino3dm_없이도_스케치업_만들기(tmp_path, fake_sheet, monkeypatch):
+    """윈도우판(v2.2)에는 rhino3dm 이 없다: 불러오지 않고 끝나야 한다."""
+    import sys
+    from conftest import _run
+    from contour_ai import contour_model
+    monkeypatch.setitem(sys.modules, "rhino3dm", None)      # import 하면 ImportError
+    monkeypatch.setattr(contour_model._Rhino, "_m", None)   # 앞 시험이 불러 둔 것도 잊게
+    s = _run(fake_sheet, tmp_path / "out", size=150, detail=1, lights=False, road_detail=False)
+    assert s["outputs"] == ["skp"]
+
+
+def test_rhino3dm_없을_때_Rhino_를_고르면_한국어_안내(monkeypatch):
+    import sys
+    from contour_ai import contour_model
+    monkeypatch.setitem(sys.modules, "rhino3dm", None)
+    monkeypatch.setattr(contour_model._Rhino, "_m", None)
+    with pytest.raises(SystemExit, match="스케치업 파일만"):
+        contour_model.r3.File3dm()

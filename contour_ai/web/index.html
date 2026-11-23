@@ -513,8 +513,7 @@ details.ppmap>summary{padding:12px 18px 4px;font-size:12px;color:var(--link);cur
   <section class="st">
     <h2><b>03</b>무엇에 쓸 모형인가요?</h2>
     <div class="seg" role="radiogroup" aria-label="모형 용도" id="presets">
-      <button type="button" role="radio" data-p="laser" title="계단판 + 매스, 판마다 레이저 DXF와 나무 구멍">레이저</button>
-      <button type="button" role="radio" data-p="render" title="경사 매스, 창문·재료, 나무·도로 디테일, 스케치업까지 전부">렌더</button>
+      <button type="button" role="radio" data-p="render" title="경사 매스, 창문·재료, 나무·도로 디테일까지 전부">렌더</button>
       <button type="button" role="radio" data-p="quick" title="경사면 + 매스만. 범위가 맞는지 먼저 볼 때">빠르게</button>
       <button type="button" role="radio" data-p="custom" title="아래 항목을 하나씩 켜고 끄기">직접</button>
     </div>
@@ -545,7 +544,6 @@ details.ppmap>summary{padding:12px 18px 4px;font-size:12px;color:var(--link);cur
       <li title="위치 자료 파일이나 수치지도에 있으면 그 위치로, 없으면 도로폭에 따라 보통 간격으로 추정 배치합니다(레이어 '가로등::추정')"><label><span>가로등·보안등<small>자료 파일 → 수치지도 → 추정</small></span><input type="checkbox" class="sw" id="lights" checked></label></li>
       <li title="차선·중앙선·정지선·횡단보도, 신호등, 전봇대, 주차 구획, 버스 정류장·지하철 출입구, 교통섬 화단. 건물 디테일 2 이상에서 만듭니다"><label><span>도로 디테일<small>차선 · 횡단보도 · 신호등 · 정류장</small></span><input type="checkbox" class="sw" id="roadx" checked></label></li>
       <li title="수치지도 입체교차부·보행육교·교량 면으로 상판과 교각을 세웁니다"><label><span>고가도로·육교·교량<small>수치지도</small></span><input type="checkbox" class="sw" id="structs" checked></label></li>
-      <li title="이 PC 에 스케치업이 있으면 model_sketchup.skp(2021 형식, 판·건물은 밀어 올린 진짜 면)를 직접 만듭니다. 스케치업 창이 잠깐 열렸다 닫힙니다. 없으면 .json·.dae + 불러오기 확장"><label><span>스케치업 파일<small>.skp (스케치업이 있으면 직접)</small></span><input type="checkbox" class="sw" id="skp" checked></label></li>
     </ul>
 
     <details class="more">
@@ -614,7 +612,7 @@ details.ppmap>summary{padding:12px 18px 4px;font-size:12px;color:var(--link);cur
  </div>
  <div class="sb-foot">
   <div id="footSetup">
-   <p class="outs">만들어질 파일 · <b id="outs">3dm · 레이저 판</b></p>
+   <p class="outs">만들어질 파일 · <b id="outs">스케치업 (.skp · .dae)</b></p>
    <button class="go" id="go" disabled>모델 만들기</button>
    <div class="status" id="status"></div>
   </div>
@@ -1075,7 +1073,7 @@ function collect(){
   const label=(site&&site.label?String(site.label).replace(/\.[^.]+$/,''):'')||$('place').value||src.label||src.file.replace(/\.zip$/i,'');
   return {source:src.id, xy:center, w:+$('w').value, h:+$('h').value, scale:+$('scale').value, interval:+$('interval').value,
     terrain:$('terrain').value, terrain_fit:(document.querySelector('#fitseg button.on')||{}).dataset?.v||'smooth', green:$('green').checked, pads:$('pads').checked, street_trees:$('street').checked, floor_height:+$('floor').value,
-    tree_hole:+$('hole').value, vworld_key:$('vkey').value||$('vkey2').value, data_key:$('dkey').value, vworld_domain:$('vdomain').value, aerial_file:$('afile').value, lights:$('lights').checked, detail:+$('detail').value, facade_radius:$('fradius').value?+$('fradius').value:null, structures:$('structs').checked, light_file:$('lfile').value, road_detail:$('roadx').checked, road_files:$('rfile').value, hd_dir:$('hddir').value.trim(), dem_files:$('demfile').value.trim()||null, seoul_key:$('skey').value, safemap_key:$('smkey').value, seoul_service:$('ssvc').value, safemap_layer:$('smlayer').value, safemap_light_layer:$('smlight').value, seoul_code:$('scode').value, site_address:(site&&site.kind==='addr'||$('lawbody').innerHTML)?($('saddr').value.trim()||null):null, site_file:site&&site.kind==='file'?site.path:null, site_ring:site&&site.kind==='draw'?site.ring:null, site_clear:!!site&&$('siteclear').checked, site_keep_terrain:!!site&&$('sitekeep').checked, road_thickness:+$('roadt').value, sketchup:$('skp').checked, year:$('year').value||null, out:$('out').value.trim()||null, label};
+    tree_hole:+$('hole').value, vworld_key:$('vkey').value||$('vkey2').value, data_key:$('dkey').value, vworld_domain:$('vdomain').value, aerial_file:$('afile').value, lights:$('lights').checked, detail:+$('detail').value, facade_radius:$('fradius').value?+$('fradius').value:null, structures:$('structs').checked, light_file:$('lfile').value, road_detail:$('roadx').checked, road_files:$('rfile').value, hd_dir:$('hddir').value.trim(), dem_files:$('demfile').value.trim()||null, seoul_key:$('skey').value, safemap_key:$('smkey').value, seoul_service:$('ssvc').value, safemap_layer:$('smlayer').value, safemap_light_layer:$('smlight').value, seoul_code:$('scode').value, site_address:(site&&site.kind==='addr'||$('lawbody').innerHTML)?($('saddr').value.trim()||null):null, site_file:site&&site.kind==='file'?site.path:null, site_ring:site&&site.kind==='draw'?site.ring:null, site_clear:!!site&&$('siteclear').checked, site_keep_terrain:!!site&&$('sitekeep').checked, road_thickness:+$('roadt').value, outputs:['skp'], year:$('year').value||null, out:$('out').value.trim()||null, label};
 }
 async function start(body){
   hideErr();
@@ -1313,11 +1311,10 @@ function load3d(){
 (function(){
 const $=id=>document.getElementById(id);
 const P={
-  laser:{terrain:'step',detail:'1',on:{green:1,street:1,lights:0,roadx:0,structs:0,skp:0},d:'계단판 + 매스. 판마다 레이저 DXF, 나무 자리는 구멍으로'},
-  render:{terrain:'combo',detail:'3',on:{green:1,street:1,lights:1,roadx:1,structs:1,skp:1},d:'경사 매스, 창문·재료, 나무·도로 디테일, 스케치업까지 전부'},
-  quick:{terrain:'slope',detail:'1',on:{green:0,street:0,lights:0,roadx:0,structs:0,skp:0},d:'경사면 + 매스만. 범위가 맞는지 먼저 볼 때'},
+  render:{terrain:'combo',detail:'3',on:{green:1,street:1,lights:1,roadx:1,structs:1},d:'경사 매스, 창문·재료, 나무·도로 디테일까지 전부'},
+  quick:{terrain:'slope',detail:'1',on:{green:0,street:0,lights:0,roadx:0,structs:0},d:'경사면 + 매스만. 범위가 맞는지 먼저 볼 때'},
   custom:{d:'아래 항목을 하나씩 켜고 끄세요'}};
-const T=['green','street','lights','roadx','structs','skp'];
+const T=['green','street','lights','roadx','structs'];
 let cur='render', busy=false;
 function store(k,v){try{localStorage.setItem('contour_'+k,v)}catch(e){}}
 function load(k){try{return localStorage.getItem('contour_'+k)}catch(e){return null}}
@@ -1329,8 +1326,7 @@ function sync(){
   const lowDetail=+$('detail').value<2; $('roadx').disabled=lowDetail;
   T.forEach(k=>$(k).closest('li').classList.toggle('off',!$(k).checked||$(k).disabled));
   $('aerialbox').hidden=false; $('lightbox').hidden=!$('lights').checked; $('roadxbox').hidden=!$('roadx').checked||lowDetail;
-  const o=['3dm']; if($('terrain').value!=='slope') o.push('레이저 판 DXF'); if($('skp').checked) o.push('스케치업');
-  $('outs').textContent=o.join(' · ');
+  $('outs').textContent='스케치업 (.skp · .dae)';
   const sc=+$('scale').value||1000, iv=+$('interval').value||5;
   $('moresum').textContent=`1:${sc} · 판 ${iv} m · 층 ${$('floor').value} m`;
   const n=['afile','lfile','rfile','hddir','demfile'].filter(k=>$(k).value.trim()).length; $('filesum').textContent=n?`${n}개`:'없음';
