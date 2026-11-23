@@ -149,7 +149,8 @@ def title_info(key, pnu, cache_dir=None):
     """표제부: 동마다 높이·층수·구조·사용승인일."""
     return _register(key, pnu, "getBrTitleInfo",
                      ("dongNm", "bldNm", "heit", "grndFlrCnt", "ugrndFlrCnt", "strctCdNm", "useAprDay", "mainPurpsCdNm",
-                      "archArea", "totArea", "regstrKindCdNm", "roofCdNm", "mgmBldrgstPk", "mainAtchGbCdNm"), cache_dir)
+                      "archArea", "totArea", "regstrKindCdNm", "roofCdNm", "mgmBldrgstPk", "mainAtchGbCdNm",
+                      "etcPurps", "etcRoof", "etcStrct", "hhldCnt", "hoCnt", "fmlyCnt"), cache_dir)
 
 
 def floor_info(key, pnu, cache_dir=None):
@@ -342,7 +343,9 @@ def enrich(masses, bbox, crs_wkt, vworld_key, data_key, domain="", cache_dir=Non
         reg = {"대장_동명칭": t.get("dongNm") or "", "대장_건물명": t.get("bldNm") or "",
                "대장_높이(m)": h or "", "대장_지상층수": fl or "", "대장_지하층수": int(_num(t.get("ugrndFlrCnt"))) or "",
                "대장_구조": t.get("strctCdNm") or "", "대장_사용승인일": t.get("useAprDay") or "",
-               "대장_주용도": t.get("mainPurpsCdNm") or "", "대장_지붕": t.get("roofCdNm") or "", "대장_주부속": t.get("mainAtchGbCdNm") or ""}
+               "대장_주용도": t.get("mainPurpsCdNm") or "", "대장_지붕": t.get("roofCdNm") or "", "대장_주부속": t.get("mainAtchGbCdNm") or "",
+               "대장_기타용도": t.get("etcPurps") or "", "대장_기타지붕": t.get("etcRoof") or "",
+               "대장_세대수": int(_num(t.get("hhldCnt")) + _num(t.get("hoCnt")) + _num(t.get("fmlyCnt"))) or ""}
         m.setdefault("attrs", {}).update({k: str(v) for k, v in reg.items() if v != ""})
         if fl:
             m["floors"] = fl
@@ -398,6 +401,11 @@ def _apply_floors(masses, pairs, data_key, cache_dir, floor_height, log, workers
         for i in idx:
             m, t = masses[i], pairs[i]
             above, roof = floor_areas(rows.get(pnu, []), t.get("mgmBldrgstPk"))
+            from .facade import floor_uses
+            fu = floor_uses(rows.get(pnu, []), t.get("mgmBldrgstPk"))
+            if fu:
+                m["floor_uses"] = fu
+                m.setdefault("attrs", {})["대장_층별용도"] = ", ".join(f"{k}층 {u}" for k, u in sorted(fu.items())[:6])
             if roof:
                 m["rooftop_area"] = roof
                 m.setdefault("attrs", {})["대장_옥탑면적(㎡)"] = f"{roof:.1f}"

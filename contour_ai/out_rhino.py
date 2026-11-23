@@ -38,6 +38,45 @@ def _rh_extrusion(poly, z0, z1, origin):
     return ext
 
 
+def _rh_poly_xy(pts):
+    pl = r3.Polyline(len(pts) + 1)
+    for x, y in list(pts) + [pts[0]]:
+        pl.Add(float(x), float(y), 0.0)
+    return r3.PolylineCurve(pl)
+
+
+def _rh_wall(A, t, nrm, L, ops, z0, z1, depth, origin):
+    """벽 한 면 = 창 구멍이 뚫린 한 장의 판(Extrusion). 바깥 면이 벽 선 위, 두께는 안쪽으로 depth.
+    프로필은 평면 (s, z) 에 그리고 (s→벽 방향, z→위, 두께→바깥 법선) 으로 옮긴다."""
+    ext = r3.Extrusion.Create(_rh_poly_xy([(0, z0), (L, z0), (L, z1), (0, z1)]), depth, True)
+    if ext is None:
+        return None
+    for s0, s1, a, b in ops:
+        ext.AddInnerProfile(_rh_poly_xy([(s0, a), (s0, b), (s1, b), (s1, a)]))
+    T = r3.Transform(1.0)
+    T.M00, T.M01, T.M02 = float(t[0]), 0.0, float(nrm[0])
+    T.M10, T.M11, T.M12 = float(t[1]), 0.0, float(nrm[1])
+    T.M20, T.M21, T.M22 = 0.0, 1.0, 0.0
+    T.M03 = float(A[0] - origin[0] - nrm[0] * depth)
+    T.M13 = float(A[1] - origin[1] - nrm[1] * depth)
+    T.M23 = 0.0
+    ext.Transform(T)
+    return ext
+
+
+def _rh_quads(quads, origin):
+    """사각형들(각 4점) → 사각 면 메시(삼각형으로 나누지 않음)."""
+    rm = r3.Mesh()
+    for q in quads:
+        k = len(rm.Vertices)
+        for x, y, z in q:
+            rm.Vertices.Add(float(x - origin[0]), float(y - origin[1]), float(z))
+        rm.Faces.AddFace(k, k + 1, k + 2, k + 3)
+    rm.Normals.ComputeNormals()
+    rm.Compact()
+    return rm
+
+
 _RH_COUNT = [0]      # 이번 3dm 에 넣은 메시 꼭짓점 수(저장 시간 어림용)
 
 
@@ -331,9 +370,35 @@ def write_3dm(path, regions, masses, draped, origin, areas=(), trees=(), edges=(
         for part in building_parts(m, floor_height):
             role, typ = part[0], part[1]
             if role == "body" and fm:
-                for mat, mesh in fm.items():
-                    pn = "유리" if mat == "유리" else "지붕면" if mat.startswith("지붕") else "외벽"
-                    f.Objects.AddMesh(_rh_mesh(mesh), with_mat(a_for(floor_layer(nf, pn), pn), mat))
+                # 벽은 면마다 창 구멍 뚫린 한 장의 판, 유리는 사각 면, 지붕은 판 (삼각형으로 쪼개지 않음, v2.3)
+                from .facade import DEPTH, layout
+                for lay in layout(m, floor_height):
+                    aw = with_mat(a_for(floor_layer(nf, "외벽"), "외벽"), lay["wall"])
+                    glass = []
+                    for A, t_, nrm, L, ops in lay["edges"]:
+                        ext = _rh_wall(A, t_, nrm, L, ops, lay["zwall"], lay["top"], DEPTH, origin)
+                        if ext is not None:
+                            f.Objects.AddExtrusion(ext, aw)
+                        for s0, s1, z0, z1 in ops:
+                            def gp(s_, z_):
+                                q = A + s_ * t_ - nrm * DEPTH
+                                return (q[0], q[1], z_)
+                            glass.append([gp(s0, z0), gp(s1, z0), gp(s1, z1), gp(s0, z1)])
+                    if glass:
+                        f.Objects.AddMesh(_rh_quads(glass, origin),
+                                          with_mat(a_for(floor_layer(nf, "유리"), "유리"), "유리"))
+                    ext = _rh_extrusion(lay["poly"], lay["top"] - 0.02, lay["top"], origin)
+                    if ext is not None:
+                        f.Objects.AddExtrusion(ext, with_mat(a_for(floor_layer(nf, "지붕면"), "지붕면"), lay["roof"]))
+                    ext = _rh_extrusion(lay["poly"], lay["zwall"], lay["zwall"] + 0.02, origin)
+                    if ext is not None:
+                        f.Objects.AddExtrusion(ext, aw)
+                    for q in lay["cols"]:
+                        from shapely.geometry import box as _box
+                        ext = _rh_extrusion(_box(q[0] - 0.225, q[1] - 0.225, q[0] + 0.225, q[1] + 0.225),
+                                            lay["base"], lay["zwall"], origin)
+                        if ext is not None:
+                            f.Objects.AddExtrusion(ext, aw)
                 continue
             if role == "floorline":
                 if fm:

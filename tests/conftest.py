@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+os.environ.setdefault("CONTOUR_OSM", "0")     # 시험은 OpenStreetMap 에 묻지 않음 (osm 시험은 가짜 응답)
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 

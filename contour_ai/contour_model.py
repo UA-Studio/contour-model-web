@@ -47,7 +47,7 @@ DEFAULTS = dict(shape="square", outputs=None, site=None, site_clear=False, site_
                 road_thickness=ROAD_THICKNESS, sketchup=True, green=True, lights=True, light_files=(),
                 max_forest_trees=30000, facade=True, facade_radius=None, detail=3,
                 structures=True, road_detail=True, road_files=(), seoul_key=None, safemap_key=None,
-                seoul_service=None, safemap_layer=None, safemap_light_layer=None, seoul_code=None, hd_dir=None)
+                seoul_service=None, safemap_layer=None, safemap_light_layer=None, seoul_code=None, hd_dir=None, osm=True)
 
 
 def build(src, bbox, out="out", log=print, **kw):
@@ -422,6 +422,16 @@ def _road_detail(st):
                     log(f"   (버스 정류장을 받지 못함: {type(e).__name__}: {e})")
             st.transit_items += stops_from_file(st.road_info.get("busstops") or [], st.path_areas.get("road"),
                                              st.transit_items, log)
+            st.osm = None
+            if a.osm:                       # OpenStreetMap 지하철 출입구·선로·역 (v2.3)
+                from .osm_transit import entrances_to_items, fetch as fetch_osm
+                try:
+                    st.osm = fetch_osm(bbox, _crs_wkt(a), a.cache_dir, log)
+                except Exception as e:
+                    log(f"   ({e})")
+                if st.osm:
+                    st.transit_items += entrances_to_items(st.osm["entrances"], st.path_areas.get("road"),
+                                                           st.transit_items, log)
             st.road_info["transit"] = st.transit_items
             if st.wipe is not None:
                 st.road_info["islands_inferred"] = (st.road_info["islands_inferred"].difference(st.wipe)
@@ -441,6 +451,13 @@ def _road_detail(st):
                 from .underground import collect
                 ug = collect(dict(seoul_key=a.seoul_key, seoul_service=a.seoul_service, seoul_code=a.seoul_code,
                                   cache_dir=a.cache_dir), bbox, _crs_wkt(a), log)
+                osm = getattr(st, "osm", None)
+                if osm and (osm["lines"] or osm["stations"]):
+                    ug = ug or {"tunnel": [], "subway": [], "stations": []}
+                    ug["lines"] = [ln for ln, under, _ in osm["lines"] if under]
+                    if not ug.get("stations"):
+                        ug["stations"] = osm["stations"]
+                        ug["stations_src"] = "OSM"
                 if ug:
                     st.road_info["underground"] = dict(ug, road=st.path_areas.get("road"), clip=st.clip)
             except Exception as e:
@@ -741,7 +758,7 @@ def _summary(st):
     """8단계: 요약(summary.json), 대지 분석, 평면 확인 그림."""
     from .facade import clear_cache
     a, bbox, data, log, pg = st.a, st.bbox, st.data, st.log, st.pg
-    st.summary = dict(levels=list(st.regions), sheets=len(st.sheets) or len(st.regions), buildings=len(st.masses),
+    st.summary = dict(osm=bool(getattr(st, "osm", None)), levels=list(st.regions), sheets=len(st.sheets) or len(st.regions), buildings=len(st.masses),
                    road_segments=len(st.draped) + len(st.edges), path_areas=len(st.areas) + len(st.area_meshes),
                    road_inlays=len(st.inlays), road_thickness_m=a.road_thickness,
                    building_uses=dict(sorted({u: sum(1 for m in st.masses if m.get("use") == u)

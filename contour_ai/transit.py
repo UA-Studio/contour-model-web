@@ -196,7 +196,8 @@ def meshes(items, zfun, road_z):
     from collections import defaultdict
     out = []
     by = defaultdict(list)
-    plats = []
+    plats, named = [], []
+    names = {FRAME: "기둥·틀", GLASS: "유리", ROOF: "지붕", SIGN: "표지", METRO: "표지", DARK: "계단"}
     # 중앙정류장: 이어진 지붕 조각들을 한 승강장으로 (6m 안의 틈은 메움)
     med = [d for d in items if d["kind"] == "중앙버스정류장"]
     if med:
@@ -236,14 +237,24 @@ def meshes(items, zfun, road_z):
         else:
             T[2, 3] = zfun(*c)
             parts = subway_entrance(L, W)
+            if d.get("ref"):                         # 출입구 번호 (OSM): 개체마다 따로 이름
+                for col, ms in parts.items():
+                    m2 = trimesh.util.concatenate([mm.copy() for mm in ms]) if ms else None
+                    if m2 is None:
+                        continue
+                    m2.apply_transform(T)
+                    src = d["src"] + (", 번호 © OpenStreetMap contributors" if d["src"] != "OSM" else " © OpenStreetMap contributors")
+                    named.append((m2, f"교통시설::{d['kind']}::{names[col]}", col,
+                                  f"{d['kind']} {d['ref']}번 {names[col]} ({src})"))
+                continue
         for col, ms in parts.items():
             for mm in ms:
                 m2 = mm.copy(); m2.apply_transform(T)
                 by[(d["kind"], d["src"], col)].append(m2)
-    names = {FRAME: "기둥·틀", GLASS: "유리", ROOF: "지붕", SIGN: "표지", METRO: "표지", DARK: "계단"}
+    out += named
     for (kind, src, col), ms in by.items():
         out.append((trimesh.util.concatenate(ms), f"교통시설::{kind}::{names[col]}", col,
-                    f"{kind} {names[col]} ({src})"))
+                    f"{kind} {names[col]} ({src}{' © OpenStreetMap contributors' if src == 'OSM' else ''})"))
     if plats:
         out.append((trimesh.util.concatenate(plats), "교통시설::중앙버스정류장::승강장", PLATFORM, "중앙버스정류장 승강장"))
     return out

@@ -16,6 +16,9 @@ def write_guide(out_dir, summary, scale=1000, interval=5.0):
     if summary.get("sheets"):
         L.append(f"판 {summary['sheets']}장 · 건물 {summary.get('buildings', 0)}채")
         L.append("")
+    if summary.get("osm"):
+        L += ["지하철 출입구 번호·선로·역 일부는 OpenStreetMap 자료입니다: © OpenStreetMap contributors (ODbL).",
+              "이 모델을 발표·게시할 때는 이 출처를 함께 적어 주세요.", ""]
     L += ["[파일별 단위와 여는 법]", ""]
     if has("model.3dm"):
         L += ["■ model.3dm  (Rhino 7 이상)",

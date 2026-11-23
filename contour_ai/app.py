@@ -493,7 +493,7 @@ def start_job(q):
                       site_file=(q.get("site_file") or "").strip().strip('"') or None,
                       pads=bool(q.get("pads", True)),
                       site_ring=q.get("site_ring") or None, site_clear=bool(q.get("site_clear")), site_keep_terrain=bool(q.get("site_keep_terrain")),
-                      lights=bool(q.get("lights", True)), facade=bool(q.get("facade", True)),
+                      lights=bool(q.get("lights", True)), facade=bool(q.get("facade", True)), osm=bool(q.get("osm", True)),
                       detail=int(q.get("detail") or 3), structures=bool(q.get("structures", True)),
                       facade_radius=float(q["facade_radius"]) if q.get("facade_radius") else None,
                       light_files=tuple(x for x in [(q.get("light_file") or "").strip().strip('"')] if x),
