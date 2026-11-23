@@ -201,9 +201,10 @@ def write_sketchup(out_dir, regions, masses, origin, terrain_mesh=None, area_sol
     """out_dir 에 model_sketchup.dae · model_sketchup_build.json · model_sketchup_info.json · 확장 설치파일(.rbz)
     · 여는 법(.txt) 을 쓰고, 이 PC 에 스케치업이 있으면 스케치업을 띄워 model_sketchup.skp(2021 형식)까지 만든다."""
     from .building_detail import building_parts
-    from .contour_model import SOURCE_KO
+    from .buildings import SOURCE_KO
     from .facade import MATERIALS, facade_meshes, material_of
-    from .contour_model import ROLE_KO, USE_COLORS, _shift, as_polys, cut_regions
+    from .buildings import ROLE_KO, USE_COLORS
+    from .geom_util import _shift, as_polys, cut_regions
     from .paths_trees import PATH_STYLE, TREE_KIND, tree_dims
     d = Dae()
     J = SkpJson(origin)

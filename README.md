@@ -58,6 +58,31 @@ docs/                전체 사용법, 예전 개발용 시험 스크립트, REA
 Dockerfile, fly.toml 공개 서버 설정
 ```
 
+### 무엇을 고치려면 어느 파일을 (기능별로 나뉘어 있음)
+
+한 파일을 고쳐도 다른 기능에는 영향이 없도록 기능마다 파일을 나눠 두었습니다. 고칠 것에 맞는 파일만 열면 됩니다.
+
+| 고칠 것 | 파일 (`contour_ai/` 안) |
+|---|---|
+| 모델 만들기 전체 순서 (어떤 단계를 어떤 순서로) | `contour_model.py`: `build` 가 단계 함수(`_heights`, `_pads`, `_buildings`, `_trees`, `_slope`, `_save` …)를 차례로 부름 · `pipeline.py` |
+| 수치지도 읽기 (레이어 코드, SHP·DXF) | `mapdata.py` |
+| 땅 모양 (등고선 → 높이, 계단 판, 경사면, 건물 터) | `terrain.py` · 계단식 대지 `pads.py` · DEM `dem.py` |
+| 건물 덩어리 (층수 → 높이, 용도 색) | `buildings.py` · 창문·지붕 `building_detail.py` · 외관 `facade.py` |
+| 길·면을 땅 위에 얹기 | `drape.py` · 길 종류·나무 모양 `paths_trees.py` |
+| 나무·숲 | `greens.py` · `vegetation.py` · `tree_registry.py` · `tree_models.py` |
+| 도로 디테일 전체 순서 | `road_detail.py` (`road_details`) |
+| ㄴ 길 뼈대 (중심선·교차로) | `road_network.py` |
+| ㄴ 횡단보도 | `road_crosswalks.py` |
+| ㄴ 차선·정지선·화살표 | `road_marks.py` |
+| ㄴ 신호등·전봇대 | `road_fixtures.py` |
+| ㄴ 교통섬 / 주차 구획 / 자료 파일 | `road_islands.py` / `road_parking.py` / `road_sources.py` |
+| 결과 파일: Rhino / STL / 레이저 판 / 스케치업 | `out_rhino.py` / `out_stl.py` / `out_laser.py` / `skp_export.py` |
+| 평면 확인 그림 / 만드는 중 화면 그림 | `preview.py` / `live_view.py` |
+| 대지 경계·사업지 도면 | `site.py` · `sitefile.py` |
+| 서버·화면 주고받기 | `app.py` · 지도 그림 `app_mapview.py` · 대지 파일 정리 `app_siteprep.py` · 작은 도구 `app_util.py` |
+
+화면(`contour_ai/web/`)도 칸별로 나뉘어 있습니다: 모양은 `app.css`, 동작은 `ui_files.js`(파일 넣기) · `ui_site.js`(대지) · `ui_prep.js`(대지 파일 정리) · `ui_map.js`(범위·지도) · `ui_run.js`(만들기·진행) · `ui_results.js`(결과) · `ui_errors.js`(오류 안내) · `ui_view3d.js`(3D 보기) · `ui_presets.js`(왼쪽 설정) · `ui_server.js`(공개 서버·의견 보내기). 여러 칸이 함께 쓰는 값은 `ui_common.js` 의 `st` 에 모여 있습니다.
+
 ## 직접 돌려 보기 (개발자용)
 
 ```

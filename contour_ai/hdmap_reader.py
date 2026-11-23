@@ -336,7 +336,7 @@ def to_paint(features, road, log=print):
     """맞춘 정밀도로지도 표시 → [(Polygon, 종류, '정밀도로지도')] (road_details 의 marks 형식)"""
     from shapely.ops import substring
     from .marking_assets import SPEC, arrow
-    from .road_detail import _zebra
+    from .road_crosswalks import _zebra
     out = []
     w = SPEC["차선_폭"]
     lanes = [f["geom"] for f in features if f["kind"] in ("차선", "중앙선", "차도경계", "버스전용차선")]

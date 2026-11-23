@@ -152,7 +152,7 @@ def _weld(m):
     _, inv, cnt = np.unique(key, axis=0, return_inverse=True, return_counts=True)
     m.update_faces(cnt[inv.ravel()] == 1)
     m.remove_unreferenced_vertices()
-    from .contour_model import crisp_mesh
+    from .mesh_shading import crisp_mesh
     return crisp_mesh(m)
 
 

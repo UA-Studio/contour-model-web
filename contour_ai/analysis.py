@@ -93,7 +93,7 @@ def _scalebar(ax, ext):
 
 
 def _site_line(ax, site):
-    from .contour_model import as_polys
+    from .geom_util import as_polys
     for p in as_polys(site):
         xs, ys = p.exterior.xy
         ax.plot(xs, ys, color=BLUE, lw=1.8, zorder=15)
