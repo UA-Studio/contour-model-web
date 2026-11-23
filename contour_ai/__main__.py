@@ -5,6 +5,9 @@ import argparse
 import json
 import sys
 
+from .bundle_env import setup as _bundle_env
+
+_bundle_env()   # 윈도우판 묶음: 라이브러리를 불러오기 전에 좌표계 자료 위치를 맞춘다
 
 
 def main():

@@ -126,7 +126,26 @@ def tier_boxes(m):
     return out
 
 
+_BP_CACHE = {}   # 같은 건물 부품을 3dm·GLB·STL·스케치업 쓰기가 네 번 만들던 것 → 한 번만 (부품은 읽기만 할 것)
+_BP_KEYS = ("base", "top", "floors", "layer", "lod", "flat_roof", "floor_h", "height", "rooftop_area", "tiers")
+
+
+def clear_cache():
+    _BP_CACHE.clear()
+
+
 def building_parts(m, floor_height=3.3):
+    """건물 하나의 부품 목록. 같은 건물·같은 값이면 앞서 만든 목록을 돌려준다(돌려받은 것을 고치지 말 것)."""
+    key = (id(m), float(floor_height), id(m.get("poly"))) + tuple(repr(m.get(k)) for k in _BP_KEYS)
+    hit = _BP_CACHE.get(key)
+    if hit is not None and hit[0] is m:
+        return hit[1]
+    out = _building_parts(m, floor_height)
+    _BP_CACHE[key] = (m, out)
+    return out
+
+
+def _building_parts(m, floor_height=3.3):
     poly, base, top = m["poly"], m["base"], m["top"]
     kind, floors = m["layer"], int(m["floors"])
     parts = []

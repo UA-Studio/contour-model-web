@@ -288,6 +288,8 @@ _FM_CACHE = {}   # 건물 하나의 창문 메시는 3dm·GLB·스케치업 쓰�
 
 def clear_cache():
     _FM_CACHE.clear()
+    from .building_detail import clear_cache as _bp_clear   # 건물 부품 캐시도 함께 비운다
+    _bp_clear()
 
 
 def facade_meshes(m, floor_height=3.3, origin=(0.0, 0.0)):

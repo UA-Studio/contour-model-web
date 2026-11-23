@@ -12,9 +12,13 @@ import tempfile
 import time
 import zipfile
 
-import numpy as np
+from .bundle_env import setup as _bundle_env
 
-from .contour_model import build
+_bundle_env()   # 윈도우판 묶음: rasterio 를 부르기 전에 좌표계 자료 위치 맞추기 (일반 설치에서는 아무것도 안 함)
+
+import numpy as np  # noqa: E402
+
+from .contour_model import build  # noqa: E402
 
 BUILDING_SHP = "N3A_B0010000"
 

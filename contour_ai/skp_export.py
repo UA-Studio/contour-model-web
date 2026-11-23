@@ -190,8 +190,9 @@ class SkpJson:
     def write(self, path):
         doc = dict(format="contour_ai sketchup build", version=1, unit="m", origin=[float(self.origin[0]), float(self.origin[1])],
                    groups=list(self.groups.values()), defs=self.defs, instances=self.inst, lines=self.lines)
+        # json.dump(파일) 은 파이썬으로 한 조각씩 쓰느라 느리다(580m 에서 8초). dumps 는 C 로 한 번에 만든다 — 내용은 같다.
         with open(path, "w", encoding="utf-8") as fh:
-            json.dump(doc, fh, ensure_ascii=False, separators=(",", ":"))
+            fh.write(json.dumps(doc, ensure_ascii=False, separators=(",", ":")))
         return path
 
 

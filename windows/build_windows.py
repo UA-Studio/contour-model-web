@@ -19,13 +19,24 @@ ROOT = Path(__file__).resolve().parents[1]
 HERE = Path(__file__).resolve().parent
 TOP = "콘타모델_윈도우"
 # 모델 만들기에 쓰지 않는 표준 라이브러리 (용량만 차지)
-SKIP_STD = {"site-packages", "test", "idlelib", "tkinter", "turtledemo", "ensurepip", "lib2to3", "__pycache__", "venv"}
+SKIP_STD = {"site-packages", "test", "idlelib", "tkinter", "turtledemo", "ensurepip", "lib2to3", "__pycache__", "venv",
+            "pydoc_data"}
+SKIP_APP = ("__pycache__", "*.pyc")
 
 
 def _ver():
     ns = {}
     exec((ROOT / "contour_ai" / "__init__.py").read_text(encoding="utf-8"), ns)
     return ns["__version__"], ns["__date__"]
+
+
+def _skip_app(d, names):
+    """contour_ai 복사 때 뺄 것: 캐시와 web/site — 웹 서버 모드(CONTOUR_SERVER=1)에서만 쓰는
+    공개 사이트 소개 화면(영상·그림 약 23MB). 윈도우판 화면(web/index.html)은 이것을 읽지 않는다."""
+    out = set(shutil.ignore_patterns(*SKIP_APP)(d, names))
+    if Path(d).name == "web" and "site" in names:
+        out.add("site")
+    return out
 
 
 def main(out_dir):
@@ -63,8 +74,12 @@ def main(out_dir):
                     "--only-binary", ":all:", "--target", str(sp), "-r", str(ROOT / "requirements-server.txt")],
                    check=True)
     shutil.rmtree(sp / "bin", ignore_errors=True)
+    # 2-1) 실행에 쓰지 않는 파일 덜어 내기 (C 소스·시험 폴더·안 쓰는 scipy 묶음 등, windows/slim.py)
+    sys.path.insert(0, str(HERE))
+    from slim import slim
+    slim(sp)
     # 3) 프로그램
-    shutil.copytree(ROOT / "contour_ai", sp / "contour_ai", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    shutil.copytree(ROOT / "contour_ai", sp / "contour_ai", ignore=_skip_app)
     for p in sp.rglob("__pycache__"):
         shutil.rmtree(p, ignore_errors=True)
     # 4) 실행 파일·안내
