@@ -6,6 +6,7 @@
 """
 import importlib.util
 import os
+import sys
 
 
 def _pkg_dir(name):
@@ -26,3 +27,7 @@ def setup():
         d = os.path.join(pp, "proj_dir", "share", "proj")
         if os.path.isfile(os.path.join(d, "proj.db")):
             os.environ["PROJ_DATA"] = d
+            # rasterio 를 이미 불러온 뒤라면(불러오는 순간 PROJ_DATA 를 읽는다) 직접 알려 준다
+            rio_env = sys.modules.get("rasterio.env")
+            if rio_env is not None and hasattr(rio_env, "set_proj_data_search_path"):
+                rio_env.set_proj_data_search_path(d)
