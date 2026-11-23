@@ -414,6 +414,12 @@ def _road_detail(st):
                                               seoul_service=a.seoul_service, safemap_layer=a.safemap_layer,
                                               seoul_code=a.seoul_code, cache_dir=a.cache_dir),
                                      hd_dir=a.hd_dir)
+            if not st.road_info.get("busstops") and a.data_key:      # 자료 파일이 없으면 공공데이터포털에서 (v2.3)
+                from .busstop_api import fetch as fetch_stops
+                try:
+                    st.road_info["busstops"] = fetch_stops(a.data_key, bbox, _crs_wkt(a), a.cache_dir, log)
+                except Exception as e:
+                    log(f"   (버스 정류장을 받지 못함: {type(e).__name__}: {e})")
             st.transit_items += stops_from_file(st.road_info.get("busstops") or [], st.path_areas.get("road"),
                                              st.transit_items, log)
             st.road_info["transit"] = st.transit_items
