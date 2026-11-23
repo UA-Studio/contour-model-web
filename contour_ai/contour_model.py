@@ -42,7 +42,7 @@ from .preview import _plan_greens, _plan_paths, _plan_sheets, _plan_trees, _prev
 
 # ---------------------------------------------------------------- 메인
 DEFAULTS = dict(shape="square", outputs=None, site=None, site_clear=False, site_keep_terrain=False, dem=None, terrain_fit="smooth", breaklines=False, pads=True, parcel_file=None, scale=1000, interval=5, min_area=None, floor_height=FLOOR_HEIGHT, sigma=4.0, smooth=1.5,
-                terrain="combo", no_trees=False, ndvi=None, aerial=None, crs_wkt=None, vworld_key=None,
+                terrain="combo", no_trees=False, ndvi=None, chm=None, aerial=None, crs_wkt=None, vworld_key=None,
                 vworld_domain="", data_key=None, cache_dir=None, tree_spacing=8.0, tree_hole=1.0,
                 road_thickness=ROAD_THICKNESS, sketchup=True, green=True, lights=True, light_files=(),
                 max_forest_trees=30000, facade=True, facade_radius=None, detail=3,

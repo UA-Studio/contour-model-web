@@ -84,15 +84,26 @@ def fetch_ndvi(bbox, tile, year, months=(5, 6, 7, 8, 9), cell=2.0, max_cloud=30,
                 tci = get(S3 + sc + "TCI.tif", bands=(1, 2, 3)).astype(np.uint8)
     if not stack:
         raise SystemExit("맑은 장면을 찾지 못했습니다")
-    ndvi = np.nanmax(np.stack(stack), axis=0)
+    S = np.stack(stack)
+    ndvi = np.nanmax(S, axis=0)
+    # 숲은 5~9월 내내 초록, 논밭·맨땅·풀밭은 한철(7~9월)만 초록 → 최댓값만 보면 맨땅도 숲이 된다.
+    # 장면들 중 낮은 쪽(25%)도 높아야 숲으로 본다. 맑은 장면이 3장 미만인 칸은 최댓값을 쓴다.
+    with np.errstate(all="ignore"):
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            low = np.nanpercentile(S, 25, axis=0)
+    low = np.where(np.isfinite(S).sum(axis=0) >= 3, low, ndvi).astype(np.float32)
     if out:
-        np.savez_compressed(out, ndvi=ndvi, tci=tci, x0=x0, y1=y1, cell=cell, scenes=np.array(used))
+        np.savez_compressed(out, ndvi=ndvi, low=low, tci=tci, x0=x0, y1=y1, cell=cell, scenes=np.array(used))
     return ndvi
 
 
 def load_ndvi(path):
+    """반환 xs, ys, 식생지수. 여러 장면의 낮은 쪽(low, v2.1)이 있으면 그것 — 한철만 초록인 땅을 숲으로 안 보게."""
     d = np.load(path)
-    ndvi, x0, y1, cell = d["ndvi"], float(d["x0"]), float(d["y1"]), float(d["cell"])
+    ndvi = d["low"] if "low" in d.files else d["ndvi"]
+    x0, y1, cell = float(d["x0"]), float(d["y1"]), float(d["cell"])
     ys = y1 - (np.arange(ndvi.shape[0]) + 0.5) * cell
     xs = x0 + (np.arange(ndvi.shape[1]) + 0.5) * cell
     return xs, ys, ndvi

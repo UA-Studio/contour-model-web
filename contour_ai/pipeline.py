@@ -335,7 +335,7 @@ def run(source, out_dir, name=None, latlon=None, xy=None, size=500, green=True, 
             yr = year or (time.localtime().tm_year - (1 if time.localtime().tm_mon < 10 else 0))
             cache_dir = cache_dir or os.path.join(os.path.expanduser("~"), ".contour_ai_cache")
             os.makedirs(cache_dir, exist_ok=True)
-            key = f"ndvi_{tile}_{yr}_{int(bbox[0])}_{int(bbox[1])}_{int(bbox[2])}_{int(bbox[3])}.npz"
+            key = f"ndvi2_{tile}_{yr}_{int(bbox[0])}_{int(bbox[1])}_{int(bbox[2])}_{int(bbox[3])}.npz"
             ndvi = os.path.join(cache_dir, key)
             pg.step("0.6")
             if not os.path.exists(ndvi):
@@ -349,6 +349,18 @@ def run(source, out_dir, name=None, latlon=None, xy=None, size=500, green=True, 
         except Exception as e:
             log(f"   위성영상을 받지 못해 녹지 나무는 생략합니다 (인터넷 연결 확인): {e}")
             ndvi = None
+
+    chm = None
+    if green and ndvi:
+        try:
+            from .canopy_height import fetch_chm
+            chm = os.path.join(cache_dir, f"chm2_{int(bbox[0])}_{int(bbox[1])}_{int(bbox[2])}_{int(bbox[3])}.npz")
+            if not os.path.exists(chm):
+                log("   나무 높이 지도(Meta 1m) 받는 중")
+                fetch_chm(bbox, crs.to_wkt(), chm, log=log)
+        except Exception as e:
+            log(f"   (나무 높이 지도를 받지 못해 숲은 위성 범위 안에 고르게 채웁니다: {type(e).__name__}: {e})")
+            chm = None
 
     aerial = None
     if (not opts.get("no_trees") or green or opts.get("facade", True)) and (aerial_file or vworld_key):
@@ -377,7 +389,7 @@ def run(source, out_dir, name=None, latlon=None, xy=None, size=500, green=True, 
             log(f"   항공사진을 쓰지 못해 가로수는 수치지도에 있는 것만 넣습니다: {type(e).__name__}: {e}")
             aerial = None
 
-    summary = build(folder, bbox, out_dir, log=log, ndvi=ndvi, aerial=aerial, crs_wkt=crs.to_wkt(), site=site, green=green,
+    summary = build(folder, bbox, out_dir, log=log, ndvi=ndvi, chm=chm, aerial=aerial, crs_wkt=crs.to_wkt(), site=site, green=green,
                     vworld_key=vworld_key, vworld_domain=vworld_domain, data_key=data_key, cache_dir=cache_dir, **opts)
     summary.update(source=os.path.basename(str(source)) if isinstance(source, str) else [os.path.basename(str(x)) for x in source], center_latlon=[round(lat, 6), round(lon, 6)],
                    bbox=list(bbox), crs=crs.name, green=bool(summary.get("trees_by_kind", {}).get("forest") or summary.get("trees_by_kind", {}).get("garden")),

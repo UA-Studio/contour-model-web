@@ -93,13 +93,39 @@ def _green_trees(a, geom, regions, avoid, log):
             out.append((x, y, level_at(regions, Point(x, y)), float(np.clip(r, 1.2, 6.0)), "forest" if f_ else "garden"))
         log(f"   녹지 나무 {len(out)}그루 — 항공사진 수관 자리 그대로 (숲 {sum(t[4] == 'forest' for t in out)} · 조경 {sum(t[4] == 'garden' for t in out)})")
         return out
+    fill = {k: geom[k] for k in ("forest", "garden")}
+    if getattr(a, "chm", None):
+        # 항공사진이 없으면 Meta 1m 나무 높이 지도에서 나무 꼭대기를 찾아 한 그루씩 세운다.
+        # 높이 지도는 몇 년 전 영상이라, 지금 위성이 녹지라고 한 곳(forest·garden) 안의 나무만 쓴다.
+        try:
+            from shapely import contains_xy, prepare
+            from .canopy_height import trees_from_chm
+            zone = unary_union([fill["forest"], fill["garden"]]).buffer(1.0)
+            ct, cover = trees_from_chm(a.chm, zone, max_trees=a.max_forest_trees)
+            if avoid:
+                from scipy.spatial import cKDTree
+                d, _ = cKDTree(np.asarray([(t[0], t[1]) for t in avoid])).query([(t[0], t[1]) for t in ct]) if ct else ([], None)
+                ct = [t for t, dd in zip(ct, d) if dd > 2.5]
+            fz = fill["forest"].buffer(2.0)
+            prepare(fz)
+            P = np.array([(t[0], t[1]) for t in ct]) if ct else np.zeros((0, 2))
+            inf = contains_xy(fz, P[:, 0], P[:, 1]) if len(P) else []
+            for (x, y, r, h), f_ in zip(ct, inf):
+                out.append((x, y, level_at(regions, Point(x, y)), r, "forest" if f_ else "garden"))
+            hs = [t[3] for t in ct]
+            log(f"   나무 높이 지도(Meta 1m)에 맞춰 {len(out)}그루 (높이에 따라 간격·크기)"
+                + (f" (높이 중간값 {np.median(hs):.0f}m, 큰 나무 {np.percentile(hs, 90):.0f}m)" if hs else ""))
+            # 높이 지도에 나무가 없는 녹지(영상 뒤에 자란 숲 등)만 아래에서 흩뿌려 채운다
+            fill = {k: v.difference(cover.buffer(2.0)) for k, v in fill.items()}
+        except Exception as e:
+            log(f"   (나무 높이 지도를 쓰지 못해 숲은 고르게 채웁니다: {type(e).__name__}: {e})")
     for key, cfg in (("forest", FOREST), ("garden", GARDEN)):
         sp = cfg["spacing"]
         if key == "forest":
-            sp = spacing_for(geom[key].area, sp, a.max_forest_trees)
+            sp = spacing_for(fill[key].area, sp, max(1000, a.max_forest_trees - len(out)))
             if sp > cfg["spacing"] + 0.05:
                 log(f"   숲이 넓어 나무 간격을 {cfg['spacing']:g}m → {sp:.1f}m 로 넓혔습니다 (숲 나무 최대 {a.max_forest_trees}그루)")
-        for x, y, r in scatter_trees(geom[key], sp, cfg["r"], seed=1 if key == "forest" else 2,
+        for x, y, r in scatter_trees(fill[key], sp, cfg["r"], seed=1 if key == "forest" else 2,
                                      avoid=avoid + out):
             out.append((x, y, level_at(regions, Point(x, y)), r, key))
     log(f"   녹지 나무 {len(out)}그루 (숲 {sum(t[4] == 'forest' for t in out)} · 조경 {sum(t[4] == 'garden' for t in out)})")
