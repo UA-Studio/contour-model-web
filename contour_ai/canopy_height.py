@@ -40,14 +40,8 @@ def fetch_chm(bbox, crs_wkt, out, log=print):
     from pyproj import Transformer
     from rasterio.transform import from_origin
     from rasterio.warp import Resampling, reproject
-    os.environ.setdefault("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR")
-    try:
-        import certifi
-        for k in ("CURL_CA_BUNDLE", "GDAL_CURL_CA_BUNDLE"):
-            if not os.environ.get(k):
-                os.environ[k] = certifi.where()
-    except ImportError:
-        pass
+    from .vegetation import net_env
+    net_env()          # 연결이 멈춰도 무한정 기다리지 않게
     to_ll = Transformer.from_crs(crs_wkt, 4326, always_xy=True)
     lon, lat = to_ll.transform([bbox[0], bbox[2], bbox[0], bbox[2]], [bbox[1], bbox[1], bbox[3], bbox[3]])
     x0, y0 = _tile(min(lon), max(lat), ZOOM)

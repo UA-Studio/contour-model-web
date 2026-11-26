@@ -339,8 +339,9 @@ def run(source, out_dir, name=None, latlon=None, xy=None, size=500, green=True, 
             ndvi = os.path.join(cache_dir, key)
             pg.step("0.6")
             if not os.path.exists(ndvi):
-                log(f"   위성영상(Sentinel-2 {tile}, {yr}년 5~9월)으로 녹지 찾는 중 — 처음 한 번만 1~3분")
-                fetch_ndvi(bbox, tile, yr, out=ndvi, crs=crs.to_wkt(), log=log)
+                log(f"   위성영상(Sentinel-2 {tile}, {yr}년 5~9월)으로 녹지 찾는 중 — 처음 한 번만, 보통 1분 안쪽")
+                fetch_ndvi(bbox, tile, yr, out=ndvi, crs=crs.to_wkt(), log=log,
+                           progress=lambda i, n: pg.step("0.6", x=f"위성영상 {i} / {n}장"))
             else:
                 log("   저장해 둔 위성영상 녹지 자료 사용")
         except SystemExit as e:

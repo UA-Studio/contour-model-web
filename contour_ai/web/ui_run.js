@@ -68,10 +68,12 @@ function subText(){if(!sub) return ''; const nm={Rhino:'Rhino 파일',STL:'3D �
   let t=`${nm} · ${sub.x}${sub.n?` ${(sub.r+1).toLocaleString()} / ${sub.n.toLocaleString()}`:''}`;
   if(sub.est){const left=Math.round(sub.est-(Date.now()-sub.seen)/1000); t+=left>2?` · 약 ${left}초 남음`:' · 거의 다 됐어요';}
   return t;}
+// 준비 단계(위성영상 받기 등)는 몇십 초 걸릴 수 있어, 멈춘 게 아니라는 걸 보이게 마지막 기록 한 줄을 보여 준다
+function lastLine(){const ls=($('plog')?.textContent||'').trim().split('\n'); const l=(ls.pop()||'').trim(); return /^\d\/6 /.test(l)?'':l.slice(0,60);}
 function runView(k,label,el){
   $('rbig').textContent=k?`${Math.min(k,6)} / 6 단계`:'준비 중';
   $('rnow').textContent=`${label} · ${mmss(el||0)} 지남`;
-  const inSub=k===5&&sub; $('rsub2').textContent=inSub?subText():'';
+  const inSub=k===5&&sub; $('rsub2').textContent=inSub?subText():k===0?lastLine():'';
   $('rbar').style.width=Math.max(3,(k-1+(inSub?subFrac():.5))/6*100)+'%';
   $('rsteps').innerHTML=STEPS.map((n,i)=>{const s=i+1, st=s<k?'done':s===k?'now':'todo';
     const t=st==='done'&&stepAt[s+1]!=null?mss(stepAt[s+1]-stepAt[s]):st==='now'&&stepAt[s]!=null?mss((el||0)-stepAt[s]):'';
