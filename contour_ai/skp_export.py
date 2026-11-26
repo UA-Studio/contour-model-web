@@ -278,8 +278,12 @@ def write_sketchup(out_dir, regions, masses, origin, terrain_mesh=None, area_sol
                   "높이(m)": str(round(m["top"] - m["base"], 2)), "층수출처": SOURCE_KO.get(m["source"], "추정")}
         fc = m.get("facade") or {}
         fm = facade_meshes(m, floor_height, origin) if fc.get("windows") else None
+        walls_done = False
         for part in building_parts(m, floor_height):
+            if part[0] == "body" and fm and walls_done:
+                continue   # 셋백 건물: 창 메시는 모든 단을 한 번에 담고 있다
             if part[0] == "body" and fm:
+                walls_done = True
                 for mat, mesh in fm.items():
                     rgb, tr_ = MATERIALS[mat]
                     parts.append((mesh, rgb, mat, 1 - tr_))

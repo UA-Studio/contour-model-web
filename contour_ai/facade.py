@@ -350,7 +350,8 @@ def _openings(L, z_floor, fh, top, style, floor_index, shop, jit=None):
     out = []
     if floor_index in shop:
         # 1층 상가: 큰 유리 (5m마다 0.4m 기둥)
-        z0, z1 = z_floor + 0.25, min(z_floor + 2.8, top - 0.3)
+        # 층고가 2.8m 보다 낮으면 위층 창과 겹치지 않게 그 층 안(천장 밑 0.3m)에서 끝낸다
+        z0, z1 = z_floor + 0.25, min(z_floor + 2.8, z_floor + fh - 0.3, top - 0.3)
         n = max(1, int(round((L - 0.6) / 5.0)))
         bay = (L - 0.6) / n
         for k in range(n):
@@ -363,7 +364,7 @@ def _openings(L, z_floor, fh, top, style, floor_index, shop, jit=None):
     if style == "curtain":
         z0, z1 = z_floor + 0.1, min(z_floor + fh - 0.9, top - 0.3)
     else:
-        z0, z1 = z_floor + sill, min(z_floor + sill + wh, top - 0.4)
+        z0, z1 = z_floor + sill, min(z_floor + sill + wh, z_floor + fh - 0.1, top - 0.4)
     if z1 - z0 < 0.6:
         return []
     usable = L - (0.3 if style == "curtain" else 0.8)
@@ -487,7 +488,7 @@ def layout(m, floor_height=3.3):
                     ops += _openings(L, zf, fh, top, style, k, shop, jit)
             ops = [o for o in ops if o[1] - o[0] > 0.2 and o[3] - o[2] > 0.2
                    and o[0] > 0.02 and o[1] < L - 0.02 and o[2] > zwall + 0.02 and o[3] < top - 0.02]
-            edges.append((A, t, nrm, L, ops))
+            edges.append((A, t, nrm, L, _apart(ops)))
     cols = []
     if zwall > base:
         from shapely.geometry import Point
@@ -504,6 +505,16 @@ def layout(m, floor_height=3.3):
                 if all(np.hypot(*(q - c_)) > 1.5 for c_ in cols):
                     cols.append(q)
     return [dict(wall=wall_mat, roof=roof_mat, poly=poly, base=base, zwall=zwall, top=top, edges=edges, cols=cols)]
+
+
+def _apart(ops, gap=0.08):
+    """창 구멍끼리 겹치거나 닿으면 Rhino 가 벽 판(구멍 뚫린 면)을 그리지 못해 벽이 사라지고
+    창 테두리·지붕·파라펫만 공중에 떠 보인다 → 앞 구멍과 gap 안으로 붙는 구멍은 버린다."""
+    kept = []
+    for o in ops:
+        if all(o[1] + gap <= k[0] or k[1] + gap <= o[0] or o[3] + gap <= k[2] or k[3] + gap <= o[2] for k in kept):
+            kept.append(o)
+    return kept
 
 
 def _rects(L, z0, z1, holes):

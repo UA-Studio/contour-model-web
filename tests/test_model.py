@@ -30,6 +30,27 @@ def test_라이노_파일_열림(basic_model):
     assert any("건물" in l for l in layers), layers[:20]
 
 
+def test_라이노_창_구멍이_벽_판_안에_있음(basic_model):
+    """창 구멍(안쪽 윤곽)이 벽 판(바깥 윤곽) 안에 있어야 Rhino 가 벽을 그린다.
+    v2.3.1 에서는 구멍이 땅 높이만큼 위로 떠서 벽이 사라지고 창 테두리만 공중에 떠 보였다."""
+    import rhino3dm
+    out, _ = basic_model
+    m = rhino3dm.File3dm.Read(str(out / "model.3dm"))
+    n = 0
+    for o in m.Objects:
+        g = o.Geometry
+        if not isinstance(g, rhino3dm.Extrusion) or g.ProfileCount < 2:
+            continue
+        ob = g.Profile3d(0, 0.0).GetBoundingBox()
+        for i in range(1, g.ProfileCount):
+            hb = g.Profile3d(i, 0.0).GetBoundingBox()
+            for a in "XYZ":
+                assert getattr(ob.Min, a) - 0.01 <= getattr(hb.Min, a) and getattr(hb.Max, a) <= getattr(ob.Max, a) + 0.01, \
+                    (o.Attributes.Name, a, getattr(hb.Min, a), getattr(ob.Min, a), getattr(ob.Max, a))
+            n += 1
+    assert n > 100, "창 구멍 뚫린 벽이 거의 없음"
+
+
 def test_레이저_판_열림(basic_model):
     import ezdxf
     out, _ = basic_model

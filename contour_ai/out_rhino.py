@@ -26,15 +26,22 @@ def _rh_curve(ring, z, origin):
 
 
 def _rh_extrusion(poly, z0, z1, origin):
+    """평면 다각형(구멍 포함) → 수직 Extrusion.
+    Extrusion 은 안쪽 구멍 윤곽을 프로필 평면 좌표로 읽는데, 그냥 Create 하면 평면이 바깥 윤곽의 첫 점·첫 변
+    방향으로 잡혀 구멍이 엉뚱한 곳에 가거나 빠진다. 그래서 모든 윤곽을 원점 근처 z=0 에 그리고
+    프로필 평면을 월드 XY 로 못박은 뒤(CreateWithPlane) 마지막에 제자리로 옮긴다."""
     poly = poly.simplify(0.01)
     outer = Polygon(poly.exterior.coords)
     if not outer.exterior.is_ccw:
         outer = Polygon(list(outer.exterior.coords)[::-1])
-    ext = r3.Extrusion.Create(_rh_curve(outer.exterior, z0, origin), z1 - z0, True)
+    px, py = outer.exterior.coords[0][:2]
+    ext = r3.Extrusion.CreateWithPlane(_rh_poly_xy([(x - px, y - py) for x, y, *_ in outer.exterior.coords[:-1]]),
+                                       r3.Plane.WorldXY(), z1 - z0, True)
     if ext is None:
         return None
     for hole in poly.interiors:
-        ext.AddInnerProfile(_rh_curve(hole, z0, origin))
+        ext.AddInnerProfile(_rh_poly_xy([(x - px, y - py) for x, y, *_ in hole.coords[:-1]]))
+    ext.Translate(r3.Vector3d(float(px - origin[0]), float(py - origin[1]), float(z0)))
     return ext
 
 
@@ -48,18 +55,21 @@ def _rh_poly_xy(pts):
 def _rh_wall(A, t, nrm, L, ops, z0, z1, depth, origin):
     """벽 한 면 = 창 구멍이 뚫린 한 장의 판(Extrusion). 바깥 면이 벽 선 위, 두께는 안쪽으로 depth.
     프로필은 평면 (s, z) 에 그리고 (s→벽 방향, z→위, 두께→바깥 법선) 으로 옮긴다."""
-    ext = r3.Extrusion.Create(_rh_poly_xy([(0, z0), (L, z0), (L, z1), (0, z1)]), depth, True)
+    # 프로필은 벽 아래 끝(z0)을 0 으로, 평면은 월드 XY 로 못박아 그린다: Extrusion 은 창 구멍을 프로필 평면
+    # 좌표로 읽기 때문에 절대 높이로 넣으면 창이 땅 높이(z0)만큼 위로 떠 버린다 (v2.3.1 버그).
+    ext = r3.Extrusion.CreateWithPlane(_rh_poly_xy([(0, 0), (L, 0), (L, z1 - z0), (0, z1 - z0)]),
+                                       r3.Plane.WorldXY(), depth, True)
     if ext is None:
         return None
     for s0, s1, a, b in ops:
-        ext.AddInnerProfile(_rh_poly_xy([(s0, a), (s0, b), (s1, b), (s1, a)]))
+        ext.AddInnerProfile(_rh_poly_xy([(s0, a - z0), (s0, b - z0), (s1, b - z0), (s1, a - z0)]))
     T = r3.Transform(1.0)
     T.M00, T.M01, T.M02 = float(t[0]), 0.0, float(nrm[0])
     T.M10, T.M11, T.M12 = float(t[1]), 0.0, float(nrm[1])
     T.M20, T.M21, T.M22 = 0.0, 1.0, 0.0
     T.M03 = float(A[0] - origin[0] - nrm[0] * depth)
     T.M13 = float(A[1] - origin[1] - nrm[1] * depth)
-    T.M23 = 0.0
+    T.M23 = float(z0)
     ext.Transform(T)
     return ext
 
@@ -367,9 +377,13 @@ def write_3dm(path, regions, masses, draped, origin, areas=(), trees=(), edges=(
             return a
         fm = facade_meshes(m, floor_height, origin) if fc.get("windows") else None
         nf = int(m["floors"])
+        walls_done = False
         for part in building_parts(m, floor_height):
             role, typ = part[0], part[1]
+            if role == "body" and fm and walls_done:
+                continue   # 셋백 건물은 본체가 단마다 있지만 layout 이 모든 단의 벽을 한 번에 만든다 (겹쳐 두 벌 생기지 않게)
             if role == "body" and fm:
+                walls_done = True
                 # 벽은 면마다 창 구멍 뚫린 한 장의 판, 유리는 사각 면, 지붕은 판 (삼각형으로 쪼개지 않음, v2.3)
                 from .facade import DEPTH, layout
                 for lay in layout(m, floor_height):
