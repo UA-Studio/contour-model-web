@@ -191,7 +191,8 @@ class SkpJson:
         doc = dict(format="contour_ai sketchup build", version=1, unit="m", origin=[float(self.origin[0]), float(self.origin[1])],
                    groups=list(self.groups.values()), defs=self.defs, instances=self.inst, lines=self.lines)
         with open(path, "w", encoding="utf-8") as fh:
-            json.dump(doc, fh, ensure_ascii=False, separators=(",", ":"))
+            # json.dump 는 파이썬으로 한 조각씩 써서 1500m 모델(약 80MB)에서 40초 걸렸다. dumps 는 C 로 한 번에 만든다 (내용 같음)
+            fh.write(json.dumps(doc, ensure_ascii=False, separators=(",", ":")))
         return path
 
 

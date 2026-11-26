@@ -305,7 +305,10 @@ def heightfield_mesh(X, Y, H, bottom, origin):
     p, q = ring[:-1], ring[1:]
     faces += [np.column_stack([p, p + n, q]), np.column_stack([q, p + n, q + n])]
     m = trimesh.Trimesh(np.vstack([top, bot]), np.vstack(faces), process=True)
-    trimesh.repair.fix_normals(m)
+    # 면 방향은 위 순서대로 이미 고르게 바깥을 본다(윗면 반시계, 바닥 시계, 옆면 바깥).
+    # fix_normals 는 같은 결과를 1500m 격자에서 10초 넘게 걸려 다시 계산했다 → 부피 부호로 뒤집힘만 확인
+    if m.volume < 0:
+        m.invert()
     return m
 
 

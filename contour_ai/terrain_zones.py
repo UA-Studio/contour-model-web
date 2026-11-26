@@ -48,6 +48,26 @@ def _tri_piece(p):
     return np.vstack(vs), np.vstack(fs)
 
 
+def _leaves(g, i0, i1, j0, j1, xs0, ys0, cell, max_pts=300, min_n=8):
+    """격자 칸 범위를 4등분해 가며 영역 면도 그 칸 범위로 잘라 둔다 → (칸 범위, 그 안의 영역 조각).
+
+    큰 영역(도로망 전체 등)은 꼭짓점이 수만 개라, 경계 칸마다 통째로 자르면 1500m에서 2분이 넘게 걸렸다.
+    잘게 나눈 조각에 대고 자르면 같은 결과가 훨씬 빨리 나온다.
+    """
+    if g.is_empty:
+        return
+    if shapely.get_num_coordinates(g) <= max_pts or (i1 - i0 <= min_n and j1 - j0 <= min_n):
+        yield (i0, i1, j0, j1), g
+        return
+    im, jm = (i0 + i1) // 2, (j0 + j1) // 2
+    for a0, a1 in ((i0, im), (im, i1)):
+        for b0, b1 in ((j0, jm), (jm, j1)):
+            if a1 <= a0 or b1 <= b0:
+                continue
+            q = box(xs0 + b0 * cell, ys0 + a0 * cell, xs0 + b1 * cell, ys0 + a1 * cell)
+            yield from _leaves(g.intersection(q), a0, a1, b0, b1, xs0, ys0, cell, max_pts, min_n)
+
+
 def zone_mesh(g, hz, origin, cell):
     """영역 면 하나를 격자 칸으로 잘라 지형 높이에 얹은 메시."""
     x0, y0, x1, y1 = g.bounds
@@ -55,28 +75,31 @@ def zone_mesh(g, hz, origin, cell):
     ys = np.arange(np.floor(y0 / cell) * cell, y1, cell)
     if not len(xs) or not len(ys):
         return None
-    X, Y = np.meshgrid(xs, ys)
-    cells = shapely.box(X.ravel(), Y.ravel(), X.ravel() + cell, Y.ravel() + cell)
-    shapely.prepare(g)
-    inside = shapely.contains(g, cells)
-    touch = shapely.intersects(g, cells) & ~inside
     V, F, n = [], [], 0
-    # 영역 안에 통째로 든 칸: 네모 두 삼각형
-    full = np.nonzero(inside)[0]
-    if len(full):
-        cx, cy = X.ravel()[full], Y.ravel()[full]
-        quad = np.stack([np.column_stack([cx, cy]), np.column_stack([cx + cell, cy]),
-                         np.column_stack([cx + cell, cy + cell]), np.column_stack([cx, cy + cell])], axis=1)
-        V.append(quad.reshape(-1, 2))
-        base = np.arange(len(full))[:, None] * 4
-        F.append(np.vstack([base + [0, 1, 2], base + [0, 2, 3]]))
-        n = len(full) * 4
-    # 경계에 걸친 칸: 잘라서 삼각형으로
-    for piece in shapely.intersection(cells[touch], g):
-        v, f = _tri_piece(piece)
-        if v is None:
-            continue
-        V.append(v); F.append(f + n); n += len(v)
+    for (i0, i1, j0, j1), piece in _leaves(g, 0, len(ys), 0, len(xs), xs[0], ys[0], cell):
+        X, Y = np.meshgrid(xs[j0:j1], ys[i0:i1])
+        X, Y = X.ravel(), Y.ravel()
+        cells = shapely.box(X, Y, X + cell, Y + cell)
+        shapely.prepare(piece)
+        inside = shapely.contains(piece, cells)
+        touch = shapely.intersects(piece, cells) & ~inside
+        # 영역 안에 통째로 든 칸: 네모 두 삼각형
+        full = np.nonzero(inside)[0]
+        if len(full):
+            cx, cy = X[full], Y[full]
+            quad = np.stack([np.column_stack([cx, cy]), np.column_stack([cx + cell, cy]),
+                             np.column_stack([cx + cell, cy + cell]), np.column_stack([cx, cy + cell])], axis=1)
+            V.append(quad.reshape(-1, 2))
+            base = n + np.arange(len(full))[:, None] * 4
+            F.append(np.vstack([base + [0, 1, 2], base + [0, 2, 3]]))
+            n += len(full) * 4
+        # 경계에 걸친 칸: 잘라서 삼각형으로
+        if touch.any():
+            for p in shapely.intersection(cells[touch], piece):
+                v, f = _tri_piece(p)
+                if v is None:
+                    continue
+                V.append(v); F.append(f + n); n += len(v)
     if not V:
         return None
     V = np.vstack(V); F = np.vstack(F)

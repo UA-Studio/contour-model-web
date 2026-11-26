@@ -24,7 +24,7 @@ class ApiError(Exception):
     pass
 
 
-def _get(url, timeout=30):
+def _get(url, timeout=20):
     with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=timeout) as r:
         return r.read()
 
@@ -95,6 +95,9 @@ def parcels(key, bbox, crs_wkt, domain="", cache_dir=None):
 
 
 # ---------------------------------------------------------------- 건축물대장 표제부
+_BASE_OK = {}          # op → 답이 온 건축물대장 주소
+
+
 def _service_key(key):
     # 포털의 '인코딩' 키(이미 %가 들어 있음)는 그대로, '디코딩' 키는 인코딩해서
     return key if "%" in key else urllib.parse.quote(key, safe="")
@@ -110,8 +113,10 @@ def _register(key, pnu, op, keep, cache_dir=None):
     sigungu, bjdong, plat, bun, ji = pnu[0:5], pnu[5:10], pnu[10], pnu[11:15], pnu[15:19]
     plat_gb = "1" if plat == "2" else "0"   # PNU 산=2 → 대장 대지구분 산=1
     items, last = [], None
-    for base in BLD_TITLE:
-        base = base.rsplit("/", 1)[0] + "/" + op
+    # 한 번 답한 주소를 먼저 쓴다: 예전 주소가 막혀 있으면 필지마다 두 번씩 묻게 되어 큰 범위에서 몇 분씩 늘어났다
+    bases = sorted(BLD_TITLE, key=lambda b: b != _BASE_OK.get(op))
+    for base0 in bases:
+        base = base0.rsplit("/", 1)[0] + "/" + op
         items = []
         try:
             for page in range(1, 20):
@@ -132,6 +137,7 @@ def _register(key, pnu, op, keep, cache_dir=None):
                 if len(items) >= int(b.get("totalCount", 0) or 0):
                     break
             last = None
+            _BASE_OK[op] = base0
             break
         except ApiError as e:
             last = e
@@ -292,8 +298,24 @@ def match(masses, parcel_list, titles_by_pnu):
     return out
 
 
+def _ticker(total, what, log, every=15.0):
+    """오래 걸리는 조회에서 15초마다 'n / 전체' 한 줄 (화면이 멈춘 것처럼 보이지 않게)."""
+    st = dict(n=0, t0=time.time(), last=time.time())
+
+    def tick():
+        st["n"] += 1
+        now = time.time()
+        if now - st["last"] >= every and st["n"] < total:
+            st["last"] = now
+            rate = st["n"] / max(now - st["t0"], 1e-6)
+            left = (total - st["n"]) / max(rate, 1e-6)
+            log(f"   {what} {st['n']:,} / {total:,}필지 조회 중 (약 {left / 60:.0f}분 남음)" if left >= 90
+                else f"   {what} {st['n']:,} / {total:,}필지 조회 중 (곧 끝남)")
+    return tick
+
+
 def enrich(masses, bbox, crs_wkt, vworld_key, data_key, domain="", cache_dir=None, floor_height=3.3, log=print,
-           workers=8):
+           workers=16):
     """masses 에 건축물대장 정보를 붙이고 높이를 실제 값으로 바꾼다. 반환: 요약 dict"""
     stats = dict(parcels=0, parcels_queried=0, matched=0, height_from_register=0, errors=[])
     try:
@@ -322,8 +344,10 @@ def enrich(masses, bbox, crs_wkt, vworld_key, data_key, domain="", cache_dir=Non
         except Exception as e:
             return pnu, [], str(e)
     t0 = time.time()
+    tick = _ticker(len(need), "건축물대장 표제부", log)
     with ThreadPoolExecutor(workers) as ex:
         for pnu, items, err in ex.map(one, sorted(need)):
+            tick()
             for it in items:
                 it["_pnu"] = pnu
             titles[pnu] = items
@@ -371,7 +395,7 @@ def enrich(masses, bbox, crs_wkt, vworld_key, data_key, domain="", cache_dir=Non
     return stats
 
 
-def _apply_floors(masses, pairs, data_key, cache_dir, floor_height, log, workers=8):
+def _apply_floors(masses, pairs, data_key, cache_dir, floor_height, log, workers=16):
     """층별개요로 셋백(위층이 좁아짐)과 옥탑 면적을 반영. 반환: 셋백 반영 동 수."""
     want = {}
     for i, t in pairs.items():
@@ -388,8 +412,10 @@ def _apply_floors(masses, pairs, data_key, cache_dir, floor_height, log, workers
             return pnu, floor_info(data_key, pnu, cache_dir), None
         except Exception as e:
             return pnu, [], str(e)
+    tick = _ticker(len(want), "건축물대장 층별개요", log)
     with ThreadPoolExecutor(workers) as ex:
         for pnu, it, err in ex.map(one, sorted(want)):
+            tick()
             rows[pnu] = it
             if err:
                 errs.append(err)
