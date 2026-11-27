@@ -1,6 +1,6 @@
 # 콘타 모델 웹 서버판 — fly.io 설정 (자세한 순서: docs/웹배포_안내.md)
 # app 이름은 fly.io 전체에서 하나뿐이어야 함. 이미 쓰이면 바꾸고, 바꾼 이름이 사이트 주소(https://이름.fly.dev)가 됨.
-app = "ua-contour-model"
+app = "contour-model-web-jq9fig"
 primary_region = "nrt"          # 도쿄 (한국에서 가장 가까운 fly.io 지역)
 
 [build]
