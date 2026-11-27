@@ -1,0 +1,16 @@
+.git
+.github
+docs
+tests
+windows
+**/__pycache__
+**/*.pyc
+.pytest_cache
+시험결과
+결과
+contour_out
+*.zip
+*.dxf
+*.dwg
+*.3dm
+.env

@@ -1,0 +1,41 @@
+# 콘타 모델 웹 서버판 — fly.io 설정 (자세한 순서: docs/웹배포_안내.md)
+# app 이름은 fly.io 전체에서 하나뿐이어야 함. 이미 쓰이면 바꾸고, 바꾼 이름이 사이트 주소(https://이름.fly.dev)가 됨.
+app = "ua-contour-model"
+primary_region = "nrt"          # 도쿄 (한국에서 가장 가까운 fly.io 지역)
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  CONTOUR_SERVER = "1"
+  CONTOUR_DATA = "/data"
+  # 사무소 사람들이 같은 인터넷 주소(IP)로 들어오므로 하루 횟수를 넉넉히 (기본 5회는 사무소 전체 5회가 됨)
+  CONTOUR_RUNS_PER_DAY = "100"
+  CONTOUR_MAX_SIDE = "1000"       # 모델 한 변 최대 (m)
+  CONTOUR_JOB_MINUTES = "15"      # 한 작업 최대 시간
+  CONTOUR_KEEP_MINUTES = "120"    # 쉬면 올린 파일·결과를 지우는 시간 (분)
+  CONTOUR_MAX_UPLOAD_MB = "200"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # 아무도 안 쓰면 서버를 꺼서 비용을 아끼고, 누가 들어오면 다시 켬(첫 접속 몇 초 늦음)
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 50
+    hard_limit = 100
+
+[[http_service.checks]]
+  grace_period = "30s"
+  interval = "30s"
+  timeout = "5s"
+  method = "GET"
+  path = "/config"
+
+# 1000m 모델에 메모리 약 3GB → 4GB
+[[vm]]
+  size = "shared-cpu-4x"
+  memory = "4gb"

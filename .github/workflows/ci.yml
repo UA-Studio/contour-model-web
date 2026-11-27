@@ -78,3 +78,26 @@ jobs:
             시험결과/시험결과.xml
           retention-days: 14
 
+
+  docker:
+    name: 웹 서버판 (Docker)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: 이미지 만들기 (fly.io 와 같은 Dockerfile)
+        run: docker build -t contour-model .
+      - name: 띄워서 화면·예시 도엽 확인
+        run: |
+          docker run -d --name cm -p 8080:8080 contour-model
+          for i in $(seq 1 30); do curl -fsS localhost:8080/config && break; sleep 2; done
+          echo
+          curl -fsS -o /dev/null localhost:8080/app
+          curl -fsS -o 예시.zip localhost:8080/sample.zip
+          test -s 예시.zip
+          docker exec cm python -c "import contour_ai, rasterio, shapely, manifold3d, scipy, ezdxf, trimesh, pyproj; print('라이브러리', contour_ai.__version__)"
+          docker images contour-model --format '이미지 크기 {{.Size}}' >> "$GITHUB_STEP_SUMMARY"
+      - name: 서버 기록
+        if: always()
+        run: docker logs cm || true
