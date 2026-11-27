@@ -1,0 +1,53 @@
+name: 웹 서버 배포
+# main 에 합쳐지고 '자동 시험'이 통과하면 fly.io 에 새 판을 올립니다.
+# 처음 한 번: 저장소 Settings → Secrets and variables → Actions 에 FLY_API_TOKEN 넣기 (docs/웹배포_안내.md).
+# 토큰이 없으면 이 작업은 건너뜁니다(실패로 표시하지 않음).
+on:
+  workflow_run:
+    workflows: ["자동 시험"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: fly.io 배포
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - name: 토큰 확인
+        id: tok
+        run: |
+          if [ -z "$FLY_API_TOKEN" ]; then
+            echo "FLY_API_TOKEN 이 없어 배포를 건너뜁니다. docs/웹배포_안내.md 참고." >> "$GITHUB_STEP_SUMMARY"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.tok.outputs.ok == 'true'
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+        if: steps.tok.outputs.ok == 'true'
+      - name: 올리기
+        if: steps.tok.outputs.ok == 'true'
+        run: flyctl deploy --remote-only
+      - name: 사이트 열리는지 확인
+        if: steps.tok.outputs.ok == 'true'
+        run: |
+          APP=$(grep -m1 '^app' fly.toml | cut -d'"' -f2)
+          for i in $(seq 1 20); do
+            if curl -fsS "https://$APP.fly.dev/config"; then
+              echo "주소: https://$APP.fly.dev/app" >> "$GITHUB_STEP_SUMMARY"; exit 0
+            fi
+            sleep 6
+          done
+          echo "사이트가 대답하지 않습니다"; exit 1

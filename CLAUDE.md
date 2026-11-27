@@ -1,6 +1,8 @@
 # 콘타 모델 — 코드 수정 규칙
 
-이 저장소는 **윈도우 다운로드판**(스케치업 전용)을 개발합니다. 웹 서버로 배포하지 않습니다.
+이 저장소는 **윈도우 다운로드판**(스케치업 전용)과, 같은 코드를 서버 모드(`CONTOUR_SERVER=1`)로 띄우는 **웹 서버판**(fly.io, `Dockerfile`·`fly.toml`·`deploy.yml`, 안내 `docs/웹배포_안내.md`)을 개발합니다.
+두 판이 같은 코드를 쓰므로 고칠 때 `app_state.SERVER` 양쪽이 다 되는지 시험합니다(`tests/test_server.py`·`test_flow.py`, ci.yml 의 `docker` 작업).
+원래 저장소에서 가져올 때(sync) 서버 배포 파일은 이 저장소 것을 그대로 둡니다.
 코드는 원래 저장소(juhyeonglee-arch/contour-model-web)에서 주기적으로 가져옵니다(`sync-v*` 브랜치).
 
 ## 고칠 때 원칙: 하나를 고쳐도 다른 기능에 영향이 없게
