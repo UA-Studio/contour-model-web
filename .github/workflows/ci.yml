@@ -98,6 +98,13 @@ jobs:
           test -s 예시.zip
           docker exec cm python -c "import contour_ai, rasterio, shapely, manifold3d, scipy, ezdxf, trimesh, pyproj; print('라이브러리', contour_ai.__version__)"
           docker images contour-model --format '이미지 크기 {{.Size}}' >> "$GITHUB_STEP_SUMMARY"
+      - name: 컨테이너 안에서 예시 도엽으로 모델 만들기
+        run: |
+          docker cp 예시.zip cm:/data/sample.zip
+          docker exec cm python -m contour_ai /data/sample.zip --out /data/out --size 300 --no-green --no-osm
+          docker exec cm ls -la /data/out
+          docker exec cm test -s /data/out/model.glb
+          docker exec cm sh -c 'ls /data/out/*.dae'
       - name: 서버 기록
         if: always()
         run: docker logs cm || true

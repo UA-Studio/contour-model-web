@@ -14,7 +14,10 @@ ENV PYTHONUTF8=1 \
 
 WORKDIR /app
 
-# 라이브러리 먼저 (코드만 바뀌면 이 층은 다시 받지 않음). rasterio·pyproj 휠에 GDAL·PROJ 가 들어 있어 apt 설치는 필요 없음.
+# rasterio 휠의 GDAL 이 시스템 libexpat 을 찾음 (slim 이미지에는 없음)
+RUN apt-get update && apt-get install -y --no-install-recommends libexpat1 && rm -rf /var/lib/apt/lists/*
+
+# 라이브러리 먼저 (코드만 바뀌면 이 층은 다시 받지 않음). rasterio·pyproj 휠에 GDAL·PROJ 가 들어 있음.
 COPY requirements-server.txt .
 RUN pip install --no-cache-dir -r requirements-server.txt
 
