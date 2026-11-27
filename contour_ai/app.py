@@ -16,22 +16,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
 
+# 기능별 파일에서 가져옴 (예전처럼 app.X 로 불러도 동작).
+from .app_lazy import _LazyModule, pipeline  # noqa: F401
+from .app_util import _client_ip, _inside, open_folder, _zip_dir  # noqa: F401
+from .app_mapview import _named_places, _overview_png, overview_tile, _TILE  # noqa: F401
+from .app_siteprep import _is_std, PREP, site_info, site_prep  # noqa: F401
 
-class _LazyModule:
-    """무거운 모듈(numpy·trimesh·rhino3dm 등)은 처음 쓸 때 불러온다.
-    서버가 켜질 때 이것들을 먼저 불러오느라 14초 동안 접속을 못 받던 것(fly 'instance refused connection')을 없앤다."""
-
-    def __init__(self, name):
-        self._name, self._mod = name, None
-
-    def __getattr__(self, attr):
-        if self._mod is None:
-            import importlib
-            self._mod = importlib.import_module(self._name, __package__)
-        return getattr(self._mod, attr)
-
-
-pipeline = _LazyModule(".pipeline")
 _READY = threading.Event()          # 서버: 무거운 라이브러리를 다 불러왔는가 (내 PC 판은 처음부터 참)
 _READY.set()
 
@@ -157,19 +147,6 @@ def _home():
     return _sess()["home"]
 
 
-def _inside(path, root):
-    """path 가 root 폴더 안에 있는가 (서버 모드에서 남의 파일·서버 파일을 못 읽게)"""
-    try:
-        return os.path.commonpath([os.path.realpath(path), os.path.realpath(root)]) == os.path.realpath(root)
-    except ValueError:
-        return False
-
-
-def _client_ip(handler):
-    return (handler.headers.get("Fly-Client-IP") or (handler.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
-            or handler.client_address[0])
-
-
 def _queue_worker():
     while True:
         with QCOND:
@@ -269,23 +246,6 @@ def _cleanup_loop():
             traceback.print_exc()
 
 
-def _zip_dir(d, names=None):
-    import io
-    import zipfile
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        for n in sorted(names or os.listdir(d)):
-            p = os.path.join(d, n)
-            if os.path.isfile(p):
-                z.write(p, n)
-            elif os.path.isdir(p):
-                for root, _, fs in os.walk(p):
-                    for f in fs:
-                        fp = os.path.join(root, f)
-                        z.write(fp, os.path.relpath(fp, d))
-    return buf.getvalue()
-
-
 # ---------------------------------------------------------------- 입력 살펴보기
 def inspect_source(path):
     """zip(하나 또는 여러 개)을 풀어 도엽 범위·이름 목록·개관도를 만든다. 여러 도엽은 한 장으로 잇는다."""
@@ -318,61 +278,6 @@ def inspect_source(path):
                 center_latlon=[round(lat, 5), round(lon, 5)], names=names)
 
 
-def site_info(src, path=None, ring=None):
-    """대지 경계(파일 또는 화면에서 찍은 점) → 화면에 그릴 테두리와 넓이. src: _sources() 항목"""
-    from shapely.geometry import box
-    from .site import from_ring, load_boundary
-    crs = pipeline.read_crs(src["folder"])
-    sheet = pipeline.sheet_bounds(src["folder"])
-    poly = from_ring(ring) if ring else load_boundary(path, crs.to_wkt(), sheet, log=lambda *_: None, map_folder=src["folder"])
-    polys = list(getattr(poly, "geoms", [poly]))
-    fit = None
-    if path and not ring:
-        from .site import drawing_affine
-        aff = drawing_affine(path, sheet, src["folder"], log=lambda *_: None)   # 위에서 한 번 계산해 둔 값
-        if aff:
-            fit = f"도면 좌표{'(' + aff['unit'] + ')' if aff.get('unit') else ''}를 수치지도 표고점 {aff['n']}/{aff['total']}개로 맞췄어요 (오차 {aff['rms']:.1f} m)"
-    b = poly.bounds
-    sb = box(*sheet)
-    out_pct = round(100 * (1 - poly.intersection(sb).area / max(poly.area, 1e-9)))
-    # 대지가 도엽 밖으로 나가는 쪽과, 그쪽 1:5000 도엽 번호(파일 이름에 8자리 도엽 번호가 있을 때)
-    dirs = [d for d, hit in (("북", b[3] > sheet[3] + 1), ("남", b[1] < sheet[1] - 1),
-                             ("동", b[2] > sheet[2] + 1), ("서", b[0] < sheet[0] - 1)) if hit]
-    need = []
-    m = re.search(r"(?<!\d)(\d{5})(\d{3})(?!\d)", str(src.get("file") or ""))
-    if m and dirs:
-        n = int(m.group(2))
-        if 1 <= n <= 100:
-            r, c = divmod(n - 1, 10)
-            for d in dirs:
-                rr, cc = r + {"북": -1, "남": 1}.get(d, 0), c + {"동": 1, "서": -1}.get(d, 0)
-                if 0 <= rr < 10 and 0 <= cc < 10:
-                    need.append(f"{m.group(1)}{rr * 10 + cc + 1:03d}")
-    return dict(path=path, rings=[[[round(x, 2), round(y, 2)] for x, y, *_ in g.exterior.coords] for g in polys],
-                xy=[(b[0] + b[2]) / 2, (b[1] + b[3]) / 2], out_pct=out_pct, out_dirs=dirs, need=need, area=round(poly.area, 1), size=[round(b[2] - b[0], 1), round(b[3] - b[1], 1)],
-                bounds=list(b), in_sheet=bool(box(*sheet).contains(poly)), parts=len(polys), fit=fit,
-                dxf=bool(path and str(path).lower().endswith(".dxf") and not ring),
-                standard=bool(path and not ring and _is_std(path)))
-
-
-def _is_std(path):
-    from .sitefile import is_standard
-    return is_standard(path)
-
-
-PREP = {}      # 대지 파일 경로 → 정리 분석 결과(저장할 때 다시 쓴다)
-
-
-def site_prep(src, path):
-    """대지 파일 정리 화면용: 레이어 목록·역할 추측·미리보기 도형"""
-    from . import sitefile
-    crs = pipeline.read_crs(src["folder"])
-    sheet = pipeline.sheet_bounds(src["folder"])
-    an = sitefile.analyze(path, crs.to_wkt(), sheet, map_folder=src["folder"], log=lambda *_: None)
-    PREP[(src["folder"], path)] = an
-    return dict(an, fit=None, roles=list(sitefile.ROLES), standard=sitefile.is_standard(path))
-
-
 def site_save(src, path, roles):
     """고른 역할대로 표준 대지 파일을 저장하고, 그 파일을 대지 경계로 읽어 돌려준다"""
     from . import sitefile
@@ -388,67 +293,6 @@ def site_save(src, path, roles):
     info = sitefile.write_standard(std, out, an, roles, os.path.basename(path), log=msgs.append)
     v = site_info(src, path=out)
     return dict(v, saved=out, info=info, notes=[m.strip() for m in msgs])
-
-
-def _named_places(folder):
-    """이름 → 위치. 같은 이름(단지의 여러 동)은 합쳐서 가운데를 잡는다(명령줄 --name 과 같은 방식)."""
-    import shapefile
-    from shapely.geometry import shape
-    from shapely.ops import unary_union
-    found = {}
-    for layer in ("N3A_B0010000", "N3P_H0040000", "N3A_C0430000"):
-        fn = os.path.join(folder, layer)
-        if not os.path.exists(fn + ".shp"):
-            continue
-        r = shapefile.Reader(fn, encoding="euc-kr", encodingErrors="replace")
-        idx = [i for i, f in enumerate(r.fields[1:]) if f[0] == "명칭"]
-        for sr in r.iterShapeRecords():
-            for i in idx:
-                v = str(sr.record[i] or "").strip()
-                if len(v) >= 2 and not re.fullmatch(r"[\d\-]+동?", v):
-                    found.setdefault(v, []).append(shape(sr.shape.__geo_interface__))
-    out = []
-    for k in sorted(found):
-        c = unary_union(found[k]).centroid
-        out.append({"name": k, "xy": [round(c.x, 1), round(c.y, 1)]})
-    return out[:1500]
-
-
-def _overview_png(folder, sheet, path):
-    """도엽 전체 개관도(건물·도로). 화면에서 클릭해 범위를 고르는 데 쓴다."""
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    import shapefile
-    from matplotlib.collections import PolyCollection
-    w, h = sheet[2] - sheet[0], sheet[3] - sheet[1]
-    fig = plt.figure(figsize=(8, 8 * h / w), dpi=125)
-    ax = fig.add_axes([0, 0, 1, 1])
-    for layer, fc in (("N3A_A0010000", "#8d8d89"), ("N3A_B0010000", "#ffffff")):
-        fn = os.path.join(folder, layer)
-        if not os.path.exists(fn + ".shp"):
-            continue
-        polys = []
-        for s in shapefile.Reader(fn, encoding="euc-kr", encodingErrors="replace").iterShapes():
-            parts = list(s.parts) + [len(s.points)]
-            polys += [s.points[a:b] for a, b in zip(parts[:-1], parts[1:]) if b - a > 2]
-        ax.add_collection(PolyCollection(polys, facecolors=fc, edgecolors="#55554f", linewidths=0.15))
-    fn = os.path.join(folder, "N3L_F0010000")
-    if os.path.exists(fn + ".shp"):
-        for s in shapefile.Reader(fn, encoding="euc-kr", encodingErrors="replace").iterShapes():
-            xs, ys = zip(*s.points)
-            ax.plot(xs, ys, color="#b9b2a2", lw=0.3, zorder=0)
-    sj = os.path.join(folder, "sheets.json")
-    if os.path.exists(sj):        # 이어 붙인 도엽 경계
-        for sh in json.load(open(sj, encoding="utf-8"))["sheets"]:
-            x0, y0, x1, y1 = sh["bbox"]
-            ax.plot([x0, x1, x1, x0, x0], [y0, y0, y1, y1, y0], color="#c0562f", lw=0.8, ls=(0, (6, 4)), zorder=5)
-    ax.set_xlim(sheet[0], sheet[2])
-    ax.set_ylim(sheet[1], sheet[3])
-    ax.set_facecolor("#e4e2dc")
-    ax.axis("off")
-    fig.savefig(path, facecolor="#e4e2dc")
-    plt.close(fig)
 
 
 # ---------------------------------------------------------------- 작업
@@ -529,6 +373,7 @@ class Job:
             took = round(time.time() - self.started)
             if self.error:
                 _slog("작업 실패", f"{took}초", self.error[:300])
+                _refund(self)
             else:
                 _slog("작업 완료", f"{took}초")
 
@@ -610,6 +455,16 @@ def _job_process(self, folder, out, params):
 Job._run_in_process = _job_process
 
 
+OUTPUT_KINDS = ("rhino", "laser", "print", "sketchup", "plan", "photo")
+
+
+def _outputs(v):
+    """받을 파일 (v2.2): 화면에서 고른 것만. 없으면(옛 화면·명령줄) 전부."""
+    if not isinstance(v, (list, tuple)):
+        return None
+    return [k for k in OUTPUT_KINDS if k in v]
+
+
 def start_job(q):
     with LOCK:
         if _state()["job"] and not _state()["job"].done:
@@ -617,17 +472,19 @@ def start_job(q):
         if q.get("source") not in _sources():
             raise ValueError("먼저 수치지도 zip 파일을 넣어 주세요.")
         size = [float(q.get("w") or 500), float(q.get("h") or q.get("w") or 500)]
+        shape = "circle" if q.get("shape") == "circle" else "square"
+        if shape == "circle":                    # 원: 가로 = 지름 (v2.2)
+            size[1] = size[0]
         stem = re.sub(r"[^\w가-힣]+", "_", q.get("label") or "모델").strip("_") or "모델"
         out = q.get("out") or os.path.join(_home(), stem[:60] + time.strftime("_%m%d_%H%M"))
         _state()["view"] = None
         params = dict(source=q["source"], out=out, size=size[0] if size[0] == size[1] else tuple(size),
                       xy=tuple(q["xy"]) if q.get("xy") else None, green=bool(q.get("green", True)),
                       year=int(q["year"]) if q.get("year") else None,
-                      scale=float(q.get("scale") or 1000), interval=float(q.get("interval") or 5),
-                      terrain=q.get("terrain") or "combo", terrain_fit="exact" if q.get("terrain_fit") == "exact" else "smooth", floor_height=float(q.get("floor_height") or 3.3),
+                      scale=float(q.get("scale") or 1000), interval=_interval(q.get("interval")),
+                      shape=shape, outputs=_outputs(q.get("outputs")), terrain=q.get("terrain") or "combo", terrain_fit="exact" if q.get("terrain_fit") == "exact" else "smooth", floor_height=float(q.get("floor_height") or 3.3),
                       no_trees=not q.get("street_trees", True), tree_hole=float(q.get("tree_hole") or 1.0),
                       road_thickness=float(q.get("road_thickness") or 1.0), sketchup=bool(q.get("sketchup", True)),
-                      outputs=q.get("outputs") or None,   # 없으면 기본(스케치업만, contour_model.OUTPUTS_DEFAULT)
                       vworld_key=(q.get("vworld_key") or "").strip() or None,
                       vworld_domain=(q.get("vworld_domain") or "").strip(),
                       data_key=(q.get("data_key") or "").strip() or None,
@@ -636,7 +493,7 @@ def start_job(q):
                       site_file=(q.get("site_file") or "").strip().strip('"') or None,
                       pads=bool(q.get("pads", True)),
                       site_ring=q.get("site_ring") or None, site_clear=bool(q.get("site_clear")), site_keep_terrain=bool(q.get("site_keep_terrain")),
-                      lights=bool(q.get("lights", True)), facade=bool(q.get("facade", True)),
+                      lights=bool(q.get("lights", True)), facade=bool(q.get("facade", True)), osm=bool(q.get("osm", True)),
                       detail=int(q.get("detail") or 3), structures=bool(q.get("structures", True)),
                       facade_radius=float(q["facade_radius"]) if q.get("facade_radius") else None,
                       light_files=tuple(x for x in [(q.get("light_file") or "").strip().strip('"')] if x),
@@ -652,8 +509,7 @@ def start_job(q):
                                  if x.strip().strip('"')] or None,
                       road_files=tuple(x.strip().strip('"') for x in str(q.get("road_files") or "").replace(";", "\n").splitlines()
                                        if x.strip().strip('"')))
-        if SERVER:
-            _server_check(params, q)
+        runkey = _server_check(params, q) if SERVER else None
         if params["hd_dir"] and not os.path.isdir(params["hd_dir"]):
             raise ValueError(f"정밀도로지도 폴더를 찾지 못했습니다: {params['hd_dir']}")
         for rf in params["road_files"]:
@@ -673,6 +529,9 @@ def start_job(q):
             _drop_old_results(params["out"])
             _make_room(_sess()["sid"])
         job = Job(params)
+        if runkey:                                # 하루 횟수는 작업이 실제로 시작될 때 센다 (입력 확인 오류는 안 셈)
+            RUNS[runkey] = RUNS.get(runkey, 0) + 1
+            job.runkey = runkey
         _state()["job"] = job
         if SERVER:
             with QCOND:
@@ -703,23 +562,54 @@ def _server_check(params, q):
             raise ValueError("지금 기다리는 사람이 많습니다. 잠시 뒤 다시 눌러 주세요.")
     ip, today = q.get("_ip") or "?", time.strftime("%Y%m%d")
     if getattr(_CTX, "dev", False):              # 개발자(관리자 토큰 쿠키): 하루 횟수 제한 없음
-        return
+        return None
     used = RUNS.get((ip, today), 0)
     if used >= LIMITS["runs_per_day"]:
         raise ValueError(f"한 사람이 하루에 {LIMITS['runs_per_day']}번까지 만들 수 있습니다. 내일 다시 써 주세요. "
                          "더 필요하면 오른쪽 아래 '의견 보내기'로 알려 주세요.")
-    RUNS[(ip, today)] = used + 1
+    return (ip, today)
 
 
-def open_folder(path):
-    import subprocess
-    import sys
-    if sys.platform.startswith("win"):
-        os.startfile(path)  # noqa
-    elif sys.platform == "darwin":
-        subprocess.Popen(["open", path])
-    else:
-        subprocess.Popen(["xdg-open", path])
+def _refund(job):
+    """만들다 실패하면(오류·시간 초과) 하루 횟수를 돌려준다. 직접 '멈추기'를 누른 것은 돌려주지 않는다."""
+    key = getattr(job, "runkey", None)
+    if not key or not job.error or (job.cancelled and not job.timed_out):
+        return False
+    if RUNS.get(key, 0) > 0:
+        RUNS[key] -= 1
+    job.refunded = True
+    job.lines.append("만들지 못해서 오늘 횟수는 깎지 않았습니다.")
+    return True
+
+
+_SAMPLE_LOCK = threading.Lock()
+
+
+def _sample_zip():
+    """예시 도엽 zip 을 처음 한 번 만들어 두고 같은 것을 준다. 실제 수치지도가 아니라 지어낸 지형·건물·길."""
+    d = os.path.join(DATA if SERVER else HOME, "_sample")
+    zp = os.path.join(d, "예시도엽.zip")
+    with _SAMPLE_LOCK:
+        if not os.path.exists(zp):
+            import subprocess
+            import sys
+            os.makedirs(d, exist_ok=True)
+            tmp = zp + ".part"
+            subprocess.run([sys.executable, "-m", "contour_ai.sample_sheet", os.path.join(d, "shp"), tmp],
+                           check=True, cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           stdout=subprocess.DEVNULL)
+            os.replace(tmp, zp)
+            shutil.rmtree(os.path.join(d, "shp"), ignore_errors=True)
+    return zp
+
+
+def _interval(v):
+    """등고 간격(판 한 장 높이): 0.5~20m, 0.1m 단위로 맞춘다. 너무 촘촘하면 판이 수백 장이 되어 느려진다."""
+    try:
+        x = float(v or 5)
+    except (TypeError, ValueError):
+        x = 5.0
+    return round(min(20.0, max(0.5, x)), 1)
 
 
 def result_dir():
@@ -767,59 +657,6 @@ def recent_results(n=8):
     return sorted(out, key=lambda r: -r["at"])[:n]
 
 
-_TILE = {}
-
-
-def overview_tile(src, bbox, px):
-    """지도 확대용: 보이는 부분만 화면 해상도로 다시 그린 그림(PNG 바이트). 도형은 도엽마다 한 번만 읽어 둔다."""
-    import io
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    import shapefile
-    from matplotlib.collections import LineCollection, PolyCollection
-    folder = src["folder"]
-    if folder not in _TILE:
-        g = {}
-        for layer in ("N3A_A0010000", "N3A_B0010000"):
-            fn = os.path.join(folder, layer)
-            polys = []
-            if os.path.exists(fn + ".shp"):
-                for s in shapefile.Reader(fn, encoding="euc-kr", encodingErrors="replace").iterShapes():
-                    parts = list(s.parts) + [len(s.points)]
-                    polys += [s.points[a:b] for a, b in zip(parts[:-1], parts[1:]) if b - a > 2]
-            g[layer] = polys
-        lines = []
-        fn = os.path.join(folder, "N3L_F0010000")
-        if os.path.exists(fn + ".shp"):
-            for s in shapefile.Reader(fn, encoding="euc-kr", encodingErrors="replace").iterShapes():
-                parts = list(s.parts) + [len(s.points)]
-                lines += [s.points[a:b] for a, b in zip(parts[:-1], parts[1:]) if b - a > 1]
-        g["contour"] = lines
-        _TILE.clear()
-        _TILE[folder] = g
-    g = _TILE[folder]
-    x0, y0, x1, y1 = bbox
-    w, h = x1 - x0, y1 - y0
-    pw = max(64, min(int(px), 2400))
-    ph = max(64, int(pw * h / max(w, 1e-6)))
-    k = pw / max(w, 1e-6)                   # 화면 픽셀 / m: 확대할수록 선을 조금 굵게
-    fig = plt.figure(figsize=(pw / 100, ph / 100), dpi=100)
-    ax = fig.add_axes([0, 0, 1, 1])
-    lw = min(0.9, 0.15 * max(1.0, k / 0.45) ** 0.5)
-    ax.add_collection(LineCollection(g["contour"], colors="#b9b2a2", linewidths=min(1.0, 0.3 * max(1.0, k / 0.45) ** 0.5), zorder=0))
-    for layer, fc in (("N3A_A0010000", "#8d8d89"), ("N3A_B0010000", "#ffffff")):
-        ax.add_collection(PolyCollection(g[layer], facecolors=fc, edgecolors="#55554f", linewidths=lw))
-    ax.set_xlim(x0, x1)
-    ax.set_ylim(y0, y1)
-    ax.set_facecolor("#e4e2dc")
-    ax.axis("off")
-    buf = io.BytesIO()
-    fig.savefig(buf, facecolor="#e4e2dc", format="png")
-    plt.close(fig)
-    return buf.getvalue()
-
-
 # ---------------------------------------------------------------- HTTP
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
@@ -827,7 +664,7 @@ class Handler(BaseHTTPRequestHandler):
 
     _cookie = None
 
-    _LIGHT = re.compile(r"^/(|about|legal|app|index\.html|config|status|site/.*|vendor/.*|[\w-]+\.js|feedback|admin/feedback|dev)$")
+    _LIGHT = re.compile(r"^/(|about|legal|app|index\.html|config|status|site/.*|vendor/.*|[\w-]+\.(?:js|css)|feedback|admin/feedback|dev)$")
 
     def _begin(self):
         """서버 모드: 쿠키로 방문자를 알아보고 그 사람의 칸을 고른다."""
@@ -885,6 +722,8 @@ class Handler(BaseHTTPRequestHandler):
         ctype = mimetypes.guess_type(path)[0] or "application/octet-stream"
         if path.endswith(".js"):
             ctype = "text/javascript"
+        elif path.endswith(".css"):            # 윈도우 레지스트리 값에 휘둘리지 않게 (틀리면 브라우저가 모양 파일을 버림)
+            ctype = "text/css"
         size = os.path.getsize(path)
         self.send_response(200)
         self.send_header("Content-Type", ctype)
@@ -910,8 +749,8 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html", "/app"):
             return self._file(os.path.join(WEB, "index.html"))
         if path == "/config":                        # 화면이 서버 모드인지 알고 맞는 칸만 보이게
-            from . import __version__, __date__
-            return self._send(200, dict(server=SERVER, version=__version__, date=__date__, dev=SERVER and _CTX.dev,
+            from . import __version__
+            return self._send(200, dict(server=SERVER, version=__version__, dev=SERVER and _CTX.dev,
                                         limits=LIMITS if SERVER else None,
                                         keys=dict(vworld=bool(SERVER_KEYS["vworld_key"]),
                                                   data=bool(SERVER_KEYS["data_key"])) if SERVER else None))
@@ -935,11 +774,13 @@ class Handler(BaseHTTPRequestHandler):
             job = _state()["job"]
             name = os.path.basename(path)
             return self._file(os.path.join(job.live, name)) if job else self._send(404, {})
-        if re.fullmatch(r"/[\w-]+\.js", path):
+        if re.fullmatch(r"/[\w-]+\.(?:js|css)", path):     # 화면 스크립트(ui_*.js 등)·모양(app.css)
             return self._file(os.path.join(WEB, path.lstrip("/")))
         if path.startswith("/vendor/"):
             p = os.path.normpath(os.path.join(WEB, path.lstrip("/")))
             return self._file(p) if p.startswith(os.path.join(WEB, "vendor")) else self._send(403, {})
+        if path == "/sample.zip":                    # 예시 도엽(지어낸 지형): 수치지도가 없는 첫 방문자도 바로 해 볼 수 있게 (v2.2)
+            return self._attach(open(_sample_zip(), "rb").read(), "예시도엽_지어낸지형.zip")
         if path == "/overview.png":
             src = _sources().get(q.get("id"))
             return self._file(os.path.join(src["work"], "overview.png")) if src else self._send(404, {})
@@ -951,13 +792,14 @@ class Handler(BaseHTTPRequestHandler):
             events = job.progress.events
             return self._send(200, dict(running=not job.done, done=job.done, error=job.error,
                                         lines=job.lines[since:], n=len(job.lines), out=job.out,
-                                        events=events[ev:], ne=len(events), cancelled=job.cancelled and not job.timed_out,
+                                        events=events[ev:], ne=len(events), cancelled=job.cancelled and not job.timed_out, refunded=getattr(job, "refunded", False),
                                         summary=job.summary, elapsed=round(time.time() - job.started),
                                         queue=job.queue_pos() if SERVER and not job.done else 0))
         if path.startswith("/result/"):
             d = result_dir()
             name = os.path.basename(path)
-            if not d or name not in ("model.glb", "preview_plan.png", "summary.json", "분석_경사.png", "분석_절성토.png"):
+            if not d or not (name in ("model.glb", "preview_plan.png", "summary.json", "분석_경사.png", "분석_절성토.png",
+                                      "site_diagram.svg") or re.fullmatch(r"section_\d+\.svg", name)):
                 return self._send(404, {})
             return self._file(os.path.join(d, name))
         if path == "/files":                   # 완성 화면의 파일 목록 (폴더 안 laser 등 하위 폴더도 하나로)
@@ -1080,6 +922,13 @@ class Handler(BaseHTTPRequestHandler):
                         return self._send(400, {"error": str(e), "path": dest, "prep": True})
                     raise
             body = json.loads(self.rfile.read(n) or b"{}")
+            if u.path == "/section":           # 지형 단면 (v2.2): 지도에 그은 선 → 결과 폴더에 SVG·DXF
+                d = result_dir()
+                if not d or not os.path.exists(os.path.join(d, "section_data.npz")):
+                    raise ValueError("먼저 모델을 만들어 주세요. 단면은 만든 모델에서 잘라요.")
+                from .section import make_section
+                sv, dx, info = make_section(d, body["a"], body["b"], float(body.get("depth") or 200))
+                return self._send(200, dict(svg=sv, dxf=dx, **info))
             if u.path == "/site":              # 경로로 준 경계 파일, 또는 화면에서 찍은 점
                 src = _sources().get(body.get("source"))
                 if not src:

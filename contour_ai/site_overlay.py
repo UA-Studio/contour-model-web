@@ -25,7 +25,8 @@ def _xyz(line, z=None):
 def site_overlay(site, interp, log=print, step=None):
     """site = {poly(모델 좌표), review, regions, plates, keep, buildings, roads, keep_terrain}
     → (항목 목록, 요약 dict). 요약은 summary.json 의 site 칸."""
-    from .contour_model import as_polys, drape_lines
+    from .geom_util import as_polys
+    from .terrain import drape_lines
     from .landlaw import envelope_mesh
     poly, rv = site["poly"], site.get("review") or {}
     items = []

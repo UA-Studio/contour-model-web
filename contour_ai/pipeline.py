@@ -339,12 +339,13 @@ def run(source, out_dir, name=None, latlon=None, xy=None, size=500, green=True, 
             yr = year or (time.localtime().tm_year - (1 if time.localtime().tm_mon < 10 else 0))
             cache_dir = cache_dir or os.path.join(os.path.expanduser("~"), ".contour_ai_cache")
             os.makedirs(cache_dir, exist_ok=True)
-            key = f"ndvi_{tile}_{yr}_{int(bbox[0])}_{int(bbox[1])}_{int(bbox[2])}_{int(bbox[3])}.npz"
+            key = f"ndvi2_{tile}_{yr}_{int(bbox[0])}_{int(bbox[1])}_{int(bbox[2])}_{int(bbox[3])}.npz"
             ndvi = os.path.join(cache_dir, key)
             pg.step("0.6")
             if not os.path.exists(ndvi):
-                log(f"   위성영상(Sentinel-2 {tile}, {yr}년 5~9월)으로 녹지 찾는 중 — 처음 한 번만 1~3분")
-                fetch_ndvi(bbox, tile, yr, out=ndvi, crs=crs.to_wkt(), log=log)
+                log(f"   위성영상(Sentinel-2 {tile}, {yr}년 5~9월)으로 녹지 찾는 중 — 처음 한 번만, 보통 1분 안쪽")
+                fetch_ndvi(bbox, tile, yr, out=ndvi, crs=crs.to_wkt(), log=log,
+                           progress=lambda i, n: pg.step("0.6", x=f"위성영상 {i} / {n}장"))
             else:
                 log("   저장해 둔 위성영상 녹지 자료 사용")
         except SystemExit as e:
@@ -353,6 +354,18 @@ def run(source, out_dir, name=None, latlon=None, xy=None, size=500, green=True, 
         except Exception as e:
             log(f"   위성영상을 받지 못해 녹지 나무는 생략합니다 (인터넷 연결 확인): {e}")
             ndvi = None
+
+    chm = None
+    if green and ndvi:
+        try:
+            from .canopy_height import fetch_chm
+            chm = os.path.join(cache_dir, f"chm2_{int(bbox[0])}_{int(bbox[1])}_{int(bbox[2])}_{int(bbox[3])}.npz")
+            if not os.path.exists(chm):
+                log("   나무 높이 지도(Meta 1m) 받는 중")
+                fetch_chm(bbox, crs.to_wkt(), chm, log=log)
+        except Exception as e:
+            log(f"   (나무 높이 지도를 받지 못해 숲은 위성 범위 안에 고르게 채웁니다: {type(e).__name__}: {e})")
+            chm = None
 
     aerial = None
     if (not opts.get("no_trees") or green or opts.get("facade", True)) and (aerial_file or vworld_key):
@@ -381,13 +394,18 @@ def run(source, out_dir, name=None, latlon=None, xy=None, size=500, green=True, 
             log(f"   항공사진을 쓰지 못해 가로수는 수치지도에 있는 것만 넣습니다: {type(e).__name__}: {e}")
             aerial = None
 
-    summary = build(folder, bbox, out_dir, log=log, ndvi=ndvi, aerial=aerial, crs_wkt=crs.to_wkt(), site=site, green=green,
+    summary = build(folder, bbox, out_dir, log=log, ndvi=ndvi, chm=chm, aerial=aerial, crs_wkt=crs.to_wkt(), site=site, green=green,
                     vworld_key=vworld_key, vworld_domain=vworld_domain, data_key=data_key, cache_dir=cache_dir, **opts)
     summary.update(source=os.path.basename(str(source)) if isinstance(source, str) else [os.path.basename(str(x)) for x in source], center_latlon=[round(lat, 6), round(lon, 6)],
                    bbox=list(bbox), crs=crs.name, green=bool(summary.get("trees_by_kind", {}).get("forest") or summary.get("trees_by_kind", {}).get("garden")),
                    satellite=bool(ndvi), aerial_trees=bool(aerial), seconds=round(time.time() - t0, 1))
     json.dump(summary, open(os.path.join(out_dir, "summary.json"), "w", encoding="utf-8"),
               indent=1, ensure_ascii=False)
+    try:                                   # 결과 폴더에 프로그램별 단위·여는 법 안내 (v2.2)
+        from .guide import write_guide
+        write_guide(out_dir, summary, scale=opts.get("scale", 1000), interval=opts.get("interval", 5))
+    except Exception as e:
+        log(f"   (사용 안내 파일을 쓰지 못했습니다: {type(e).__name__}: {e})")
     shutil.rmtree(work, ignore_errors=True)
     t = round(summary["seconds"])
     log(f"끝났습니다 ({f'{t // 60}분 {t % 60}초' if t >= 60 else f'{t}초'}). 결과 폴더: {out_dir}")

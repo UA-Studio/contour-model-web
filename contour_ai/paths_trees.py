@@ -86,7 +86,7 @@ def load_paths(folder, bbox):
 
 def drape_areas(areas, regions, min_area=0.5):
     """길 면을 계단판별로 나눈다. 반환: [(Polygon, level, kind)]"""
-    from .contour_model import as_polys
+    from .geom_util import as_polys
     lv = list(regions)
     bands = []
     for i, L in enumerate(lv):
@@ -110,7 +110,8 @@ def street_trees(areas, buildings, regions, spacing=8.0, inset=0.8,
     차도에 닿은 보도 가장자리를 따라 spacing 간격으로 놓고, 보도 안쪽으로
     inset 만큼 들인다. 폭이 min_width보다 좁은 보도와 건물 가까운 곳은 뺀다.
     """
-    from .contour_model import as_polys, level_at
+    from .geom_util import as_polys
+    from .terrain import level_at
     walk = unary_union([areas[k] for k in ("sidewalk", "island") if k in areas])
     if walk.is_empty:
         return []

@@ -29,16 +29,17 @@ GARDEN = dict(ndvi=0.50, min_area=40, spacing=7.0, r=(1.6, 2.6))
 def _list(prefix):
     import re
     url = f"{S3}?list-type=2&prefix={prefix}&delimiter=/"
-    xml = urllib.request.urlopen(url, timeout=60).read().decode()
+    xml = urllib.request.urlopen(url, timeout=30).read().decode()
     return re.findall(r"<Prefix>([^<]+)</Prefix>", xml)[1:]
 
 
-def fetch_ndvi(bbox, tile, year, months=(5, 6, 7, 8, 9), cell=2.0, max_cloud=30, out=None,
-               crs="EPSG:5186", log=print):
-    import rasterio
-    from rasterio.transform import from_origin
-    from rasterio.warp import Resampling, reproject
+def net_env():
+    """GDAL 이 https 영상을 읽을 때의 설정. 연결이 멈춰도 무한정 기다리지 않게 시간 제한을 둔다."""
     os.environ.setdefault("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR")
+    os.environ.setdefault("GDAL_HTTP_CONNECTTIMEOUT", "15")
+    os.environ.setdefault("GDAL_HTTP_TIMEOUT", "60")
+    os.environ.setdefault("GDAL_HTTP_MAX_RETRY", "2")
+    os.environ.setdefault("GDAL_HTTP_RETRY_DELAY", "1")
     # 윈도우용 GDAL 은 인증서 묶음을 못 찾아 https 영상을 못 여는 경우가 있다 → certifi 묶음을 알려 준다
     try:
         import certifi
@@ -47,6 +48,37 @@ def fetch_ndvi(bbox, tile, year, months=(5, 6, 7, 8, 9), cell=2.0, max_cloud=30,
                 os.environ[k] = certifi.where()
     except ImportError:
         pass
+
+
+def _pick(cands, n):
+    """후보 [(구름 %, 달, 경로)] 에서 n장: 달마다 가장 맑은 것 먼저(계절이 고루 섞이게), 나머지는 맑은 순."""
+    cands = sorted(cands)
+    first, seen = [], set()
+    for c in cands:
+        if c[1] not in seen:
+            first.append(c)
+            seen.add(c[1])
+    rest = [c for c in cands if c not in first]
+    return (first + rest)[:n]
+
+
+def fetch_ndvi(bbox, tile, year, months=(5, 6, 7, 8, 9), cell=2.0, max_cloud=30, out=None,
+               crs="EPSG:5186", log=print, max_scenes=8, workers=4, budget=240, progress=None):
+    """맑은 장면 최대 max_scenes 장을 동시에 workers 개씩 받아 합성한다.
+
+    큰 범위(1500m 등)나 느린 인터넷에서도 멈춘 것처럼 보이지 않게:
+    장면 목록·구름 정보를 한꺼번에 묻고, 가장 맑은 장면만 골라, 여러 장을 동시에 받는다.
+    budget 초가 지나면 그때까지 받은 장면으로 합성한다(한 장도 없으면 실패 → 녹지 나무 생략).
+    progress(받은 장수, 전체 장수) 를 부르면 화면에 진행이 보인다.
+    """
+    import time as _time
+    from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+
+    import rasterio
+    from rasterio.transform import from_origin
+    from rasterio.warp import Resampling, reproject
+    net_env()
+    t0 = _time.time()
     zone, band, sq = str(int(tile[:2])), tile[2], tile[3:]   # S3 경로는 앞 0 없이 (04 → 4)
     pad = 100
     x0, y0, x1, y1 = bbox[0] - pad, bbox[1] - pad, bbox[2] + pad, bbox[3] + pad
@@ -60,39 +92,106 @@ def fetch_ndvi(bbox, tile, year, months=(5, 6, 7, 8, 9), cell=2.0, max_cloud=30,
                 reproject(rasterio.band(ds, b), out_[i], src_transform=ds.transform, src_crs=ds.crs,
                           dst_transform=T, dst_crs=crs, resampling=rs)
         return out_ if len(bands) > 1 else out_[0]
-    stack, used, tci = [], [], None
-    for m in months:
-        log(f"   {year}년 {m}월 장면 찾는 중")
-        for sc in _list(f"{PREFIX}/{zone}/{band}/{sq}/{year}/{m}/"):
-            name = sc.rstrip("/").split("/")[-1]
-            try:
-                cc = json.load(urllib.request.urlopen(f"{S3}{sc}{name}.json", timeout=60))["properties"]["eo:cloud_cover"]
-            except Exception:
-                continue
-            if cc > max_cloud:
-                continue
-            scl = get(S3 + sc + "SCL.tif", Resampling.nearest)
-            ok = np.isin(scl, [4, 5, 6, 7])
-            if ok.mean() < 0.8:
-                continue
-            r, n = get(S3 + sc + "B04.tif"), get(S3 + sc + "B08.tif")
-            nd = (n - r) / (n + r + 1e-6)
-            nd[~ok] = np.nan
-            stack.append(nd); used.append(name)
-            log(f"   위성영상 {name} 사용 (구름 {cc:.0f}%)")
-            if tci is None:
-                tci = get(S3 + sc + "TCI.tif", bands=(1, 2, 3)).astype(np.uint8)
-    if not stack:
+
+    def month_scenes(m):
+        try:
+            return [(m, sc) for sc in _list(f"{PREFIX}/{zone}/{band}/{sq}/{year}/{m}/")]
+        except Exception:
+            return []
+
+    def cloud(item):
+        m, sc = item
+        name = sc.rstrip("/").split("/")[-1]
+        try:
+            cc = json.load(urllib.request.urlopen(f"{S3}{sc}{name}.json", timeout=30))["properties"]["eo:cloud_cover"]
+        except Exception:
+            return None
+        return (cc, m, sc)
+
+    def scene(c):
+        cc, m, sc = c
+        scl = get(S3 + sc + "SCL.tif", Resampling.nearest)
+        ok = np.isin(scl, [4, 5, 6, 7])
+        if ok.mean() < 0.8:
+            return None
+        r, n = get(S3 + sc + "B04.tif"), get(S3 + sc + "B08.tif")
+        nd = (n - r) / (n + r + 1e-6)
+        nd[~ok] = np.nan
+        return nd
+
+    log(f"   {year}년 {months[0]}~{months[-1]}월 위성영상 목록 확인 중")
+    with ThreadPoolExecutor(max(1, workers) * 2) as ex:
+        items = [it for got in ex.map(month_scenes, months) for it in got]
+        cands = [c for c in ex.map(cloud, items) if c and c[0] <= max_cloud]
+    if not cands:
         raise SystemExit("맑은 장면을 찾지 못했습니다")
-    ndvi = np.nanmax(np.stack(stack), axis=0)
+    pick = _pick(cands, max_scenes)
+    log(f"   맑은 장면 {len(cands)}장 중 {len(pick)}장을 받습니다 (동시에 {workers}장씩)")
+    stack, used, done = [], [], 0
+    if progress:
+        progress(0, len(pick))
+    ex = ThreadPoolExecutor(max(1, workers))
+    try:
+        futs = {ex.submit(scene, c): c for c in pick}
+        pending = set(futs)
+        while pending:
+            left = budget - (_time.time() - t0)
+            if left <= 0:
+                break
+            fin, pending = wait(pending, timeout=left, return_when=FIRST_COMPLETED)
+            for f in fin:
+                done += 1
+                cc, m, sc = futs[f]
+                name = sc.rstrip("/").split("/")[-1]
+                try:
+                    nd = f.result()
+                except Exception as e:
+                    log(f"   위성영상 {name} 받지 못함: {type(e).__name__}")
+                    continue
+                if nd is None:
+                    continue
+                stack.append(nd); used.append(name)
+                log(f"   위성영상 {name} 사용 (구름 {cc:.0f}%) · {done}/{len(pick)}")
+                if progress:
+                    progress(done, len(pick))
+        if pending:
+            log(f"   위성영상이 {budget}초 안에 다 오지 않아 받은 {len(stack)}장으로 합성합니다 (인터넷이 느린 것 같아요)")
+            for f in pending:
+                f.cancel()
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
+    if not stack:
+        raise SystemExit("맑은 장면을 받지 못했습니다")
+    S = np.stack(stack)
+    ndvi = np.nanmax(S, axis=0)
+    # 숲은 5~9월 내내 초록, 논밭·맨땅·풀밭은 한철(7~9월)만 초록 → 최댓값만 보면 맨땅도 숲이 된다.
+    # 장면들 중 낮은 쪽(25%)도 높아야 숲으로 본다. 맑은 장면이 3장 미만인 칸은 최댓값을 쓴다.
+    low = _low_quartile(S, ndvi)
     if out:
-        np.savez_compressed(out, ndvi=ndvi, tci=tci, x0=x0, y1=y1, cell=cell, scenes=np.array(used))
+        np.savez_compressed(out, ndvi=ndvi, low=low, x0=x0, y1=y1, cell=cell, scenes=np.array(used))
+    log(f"   위성영상 {len(used)}장 합성 ({_time.time() - t0:.0f}초)")
     return ndvi
 
 
+def _low_quartile(S, ndvi):
+    """장면 축의 25% 값(np.nanpercentile 과 같은 선형 보간). nanpercentile 은 1500m 범위에서 20초 넘게 걸려 정렬로 계산한다.
+    맑은 장면이 3장 미만인 칸은 최댓값(ndvi)."""
+    k = np.isfinite(S).sum(axis=0)
+    srt = np.sort(S, axis=0)                      # nan 은 뒤로 간다
+    pos = 0.25 * np.maximum(k - 1, 0)
+    lo = np.floor(pos).astype(np.intp)
+    hi = np.minimum(lo + 1, np.maximum(k - 1, 0))
+    a = np.take_along_axis(srt, lo[None], 0)[0]
+    b = np.take_along_axis(srt, hi[None], 0)[0]
+    low = a + (b - a) * (pos - lo)
+    return np.where(k >= 3, low, ndvi).astype(np.float32)
+
+
 def load_ndvi(path):
+    """반환 xs, ys, 식생지수. 여러 장면의 낮은 쪽(low, v2.1)이 있으면 그것 — 한철만 초록인 땅을 숲으로 안 보게."""
     d = np.load(path)
-    ndvi, x0, y1, cell = d["ndvi"], float(d["x0"]), float(d["y1"]), float(d["cell"])
+    ndvi = d["low"] if "low" in d.files else d["ndvi"]
+    x0, y1, cell = float(d["x0"]), float(d["y1"]), float(d["cell"])
     ys = y1 - (np.arange(ndvi.shape[0]) + 0.5) * cell
     xs = x0 + (np.arange(ndvi.shape[1]) + 0.5) * cell
     return xs, ys, ndvi

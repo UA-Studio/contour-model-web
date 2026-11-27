@@ -52,7 +52,8 @@ def test_시간_초과는_멈추기와_다르게_이유가_보임(app):
     assert job.cancelled and job.timed_out
     src = (ROOT / "contour_ai" / "app.py").read_text(encoding="utf-8")
     assert "cancelled=job.cancelled and not job.timed_out" in src
-    html = (ROOT / "contour_ai" / "web" / "index.html").read_text(encoding="utf-8")
+    web = ROOT / "contour_ai" / "web"           # 화면은 index.html + 기능별 ui_*.js 로 나뉘어 있음
+    html = "\n".join(p.read_text(encoding="utf-8") for p in [web / "index.html", *sorted(web.glob("ui_*.js"))])
     assert "분 안에 끝나지 않아" in html, "시간 초과 안내가 화면에 없음"
     live = (ROOT / "contour_ai" / "web" / "live.js").read_text(encoding="utf-8")
     assert "기록 탭에서 이유를" not in live, "없는 '기록 탭'을 보라는 안내가 남아 있음"

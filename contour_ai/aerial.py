@@ -17,7 +17,7 @@ import numpy as np
 
 VWORLD_URL = "https://api.vworld.kr/req/wmts/1.0.0/{key}/Satellite/{z}/{y}/{x}.jpeg"
 CELL = 0.3
-TREE_WORDS = ("가로수", "독립수", "수목", "나무")
+TREE_WORDS = ("가로수", "독립수", "보호수", "수목", "나무")
 
 
 # ---------------------------------------------------------------- 영상 준비

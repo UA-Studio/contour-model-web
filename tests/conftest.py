@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+os.environ.setdefault("CONTOUR_OSM", "0")     # 시험은 OpenStreetMap 에 묻지 않음 (osm 시험은 가짜 응답)
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
@@ -54,7 +56,7 @@ def fake_site(out_root):
     return p
 
 
-ALL_OUTPUTS = ("skp", "3dm", "stl", "laser")
+ALL_OUTPUTS = ("sketchup", "rhino", "print", "laser", "plan", "photo")
 
 
 def _run(source, out, size=300, **kw):
@@ -67,7 +69,7 @@ def _run(source, out, size=300, **kw):
 
 @pytest.fixture(scope="session")
 def basic_model(out_root, fake_sheet):
-    """기본 모델: 가짜 도엽, 300m, 위성영상 없이. 모든 출력 형식(Rhino·STL·레이저 코드도 시험하려고)."""
+    """기본 모델: 가짜 도엽, 300m, 위성영상 없이. 받을 파일 전부(Rhino·STL·레이저 코드도 시험하려고)."""
     out = out_root / "기본모델"
     return out, _run(fake_sheet, out, outputs=ALL_OUTPUTS)
 
@@ -81,6 +83,6 @@ def site_model(out_root, fake_sheet, fake_site):
 
 @pytest.fixture(scope="session")
 def skp_model(out_root, fake_sheet, fake_site):
-    """출력 형식 기본값(v2.2: 스케치업만) + 대지 경계·레벨 도면."""
+    """받을 파일 기본값(스케치업만) + 대지 경계·레벨 도면."""
     out = out_root / "스케치업만"
     return out, _run(fake_sheet, out, site_file=str(fake_site))

@@ -190,8 +190,8 @@ class SkpJson:
     def write(self, path):
         doc = dict(format="contour_ai sketchup build", version=1, unit="m", origin=[float(self.origin[0]), float(self.origin[1])],
                    groups=list(self.groups.values()), defs=self.defs, instances=self.inst, lines=self.lines)
-        # json.dump(파일) 은 파이썬으로 한 조각씩 쓰느라 느리다(580m 에서 8초). dumps 는 C 로 한 번에 만든다 — 내용은 같다.
         with open(path, "w", encoding="utf-8") as fh:
+            # json.dump 는 파이썬으로 한 조각씩 써서 1500m 모델(약 80MB)에서 40초 걸렸다. dumps 는 C 로 한 번에 만든다 (내용 같음)
             fh.write(json.dumps(doc, ensure_ascii=False, separators=(",", ":")))
         return path
 
@@ -202,9 +202,10 @@ def write_sketchup(out_dir, regions, masses, origin, terrain_mesh=None, area_sol
     """out_dir 에 model_sketchup.dae · model_sketchup_build.json · model_sketchup_info.json · 확장 설치파일(.rbz)
     · 여는 법(.txt) 을 쓰고, 이 PC 에 스케치업이 있으면 스케치업을 띄워 model_sketchup.skp(2021 형식)까지 만든다."""
     from .building_detail import building_parts
-    from .contour_model import SOURCE_KO
+    from .buildings import SOURCE_KO
     from .facade import MATERIALS, facade_meshes, material_of
-    from .contour_model import ROLE_KO, USE_COLORS, _shift, as_polys, cut_regions
+    from .buildings import ROLE_KO, USE_COLORS
+    from .geom_util import _shift, as_polys, cut_regions
     from .paths_trees import PATH_STYLE, TREE_KIND, tree_dims
     d = Dae()
     J = SkpJson(origin)
@@ -272,23 +273,28 @@ def write_sketchup(out_dir, regions, masses, origin, terrain_mesh=None, area_sol
         key = f"B{bi + 1:04d}"
         parts = []
         gname = f"{key} {title} {m['floors']}F"
+        tag = f"건물::{int(m['floors']):02d}층"      # 스케치업 태그도 Rhino 처럼 층수별 (v2.2)
         battrs = {**{k: str(v) for k, v in at.items()}, "층수(모델)": str(m["floors"]),
                   "높이(m)": str(round(m["top"] - m["base"], 2)), "층수출처": SOURCE_KO.get(m["source"], "추정")}
         fc = m.get("facade") or {}
         fm = facade_meshes(m, floor_height, origin) if fc.get("windows") else None
+        walls_done = False
         for part in building_parts(m, floor_height):
+            if part[0] == "body" and fm and walls_done:
+                continue   # 셋백 건물: 창 메시는 모든 단을 한 번에 담고 있다
             if part[0] == "body" and fm:
+                walls_done = True
                 for mat, mesh in fm.items():
                     rgb, tr_ = MATERIALS[mat]
                     parts.append((mesh, rgb, mat, 1 - tr_))
-                    J.mesh(f"건물::{use}", gname, mesh, rgb, mat, alpha=1 - tr_, attrs=battrs)
+                    J.mesh(tag, gname, mesh, rgb, mat, alpha=1 - tr_, attrs=battrs)
                 continue
             if part[1] == "ext":
                 if fc:
                     mat_ = material_of(m, part[0]); rgb_ = MATERIALS[mat_][0]
                 else:
                     mat_, rgb_ = None, (tuple(int(c * 0.85) for c in color) if part[0] == "roof" else color)
-                J.ext(f"건물::{use}", gname, _shift(part[2], origin), part[3], part[4], rgb_, mat_, attrs=battrs)
+                J.ext(tag, gname, _shift(part[2], origin), part[3], part[4], rgb_, mat_, attrs=battrs)
                 mm = extrude(part[2], part[3], part[4])
             elif part[1] == "mesh":
                 mm = part[2].copy(); mm.apply_translation([-origin[0], -origin[1], 0])
@@ -296,7 +302,7 @@ def write_sketchup(out_dir, regions, masses, origin, terrain_mesh=None, area_sol
                     mat_ = material_of(m, part[0]); rgb_ = MATERIALS[mat_][0]
                 else:
                     mat_, rgb_ = None, (tuple(int(c * 0.85) for c in color) if part[0] == "roof" else color)
-                J.mesh(f"건물::{use}", gname, mm, rgb_, mat_, attrs=battrs)
+                J.mesh(tag, gname, mm, rgb_, mat_, attrs=battrs)
             else:
                 continue
             if mm is not None:
@@ -306,7 +312,7 @@ def write_sketchup(out_dir, regions, masses, origin, terrain_mesh=None, area_sol
                 else:
                     parts.append((mm, tuple(int(c * 0.85) for c in color) if part[0] == "roof" else color))
         if parts:
-            d.add(f"건물::{use}", f"{key} {title} {m['floors']}F", parts)
+            d.add(tag, f"{key} {title} {m['floors']}F", parts)
             info[key] = {**{k: str(v) for k, v in at.items()}, "층수(모델)": str(m["floors"]),
                          "높이(m)": str(round(m["top"] - m["base"], 2)),
                          "층수출처": SOURCE_KO.get(m["source"], "추정"),
@@ -417,7 +423,7 @@ HOWTO = """스케치업에서 콘타 모델 여는 법
 
 [매번] 모델 불러오기
   확장 프로그램 > 콘타 모델 > 콘타 모델 불러오기 (.dae → .skp) > model_sketchup.dae 선택
-  - 레이어 구조대로 태그(지형 / 길 / 건물 > 용도 / 나무)가 붙고, 건물마다 수치지도 정보가 들어갑니다.
+  - 레이어 구조대로 태그(지형 / 길 / 건물 > 05층처럼 층수별 / 나무)가 붙고, 건물마다 수치지도 정보가 들어갑니다.
   - 대지·경사면·곡면 위 길의 삼각형 모서리는 부드럽게 숨깁니다.
   - 같은 폴더에 model_sketchup.skp 로 저장됩니다.
 
