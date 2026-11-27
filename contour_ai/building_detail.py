@@ -22,8 +22,11 @@ from shapely.ops import voronoi_diagram
 from shapely.geometry import LineString, MultiPoint, Point, Polygon, box
 from shapely.prepared import prep
 
-PARAPET_H = 0.9
-PARAPET_T = 0.25
+# 파라펫(옥상 난간벽) — 건축법 시행령 제40조①: 옥상광장·2층 이상 노대 주위에는 높이 1.2m 이상의 난간.
+# 주택건설기준 등에 관한 규정 제18조: 난간 높이는 바닥 마감면부터 1.2m 이상. 평지붕 옥상 전부에 같은 규격을 쓴다.
+# 두께는 법 규정이 없어 철근콘크리트 파라펫에 흔한 0.2m.
+PARAPET_H = 1.2       # 옥상 바닥 마감면(ROOF_DECK 위)부터
+PARAPET_T = 0.2
 ROOF_PITCH = math.radians(27)
 ROOF_MAX = 3.2
 CANOPY_H = 3.0
@@ -127,7 +130,7 @@ def tier_boxes(m):
 
 
 _BP_CACHE = {}   # 같은 건물 부품을 3dm·GLB·STL·스케치업 쓰기가 네 번 만들던 것 → 한 번만 (부품은 읽기만 할 것)
-_BP_KEYS = ("base", "top", "floors", "layer", "lod", "flat_roof", "floor_h", "height", "rooftop_area", "tiers")
+_BP_KEYS = ("base", "top", "floors", "layer", "lod", "flat_roof", "floor_h", "height", "rooftop_area", "tiers", "pitched")
 
 
 def clear_cache():
@@ -180,7 +183,8 @@ def _building_parts(m, floor_height=3.3):
             parts.append(("frame", "ext", p, base, base + 0.3 + floors * floor_height))
         return parts
 
-    pitched = (kind in ("가건물", "온실") or (kind == "일반주택" and floors <= 2 and area < 400)) and not m.get("flat_roof")
+    pitched = (kind in ("가건물", "온실") or (kind == "일반주택" and floors <= 2 and area < 400)
+               or (m.get("pitched") and area < 800)) and not m.get("flat_roof")
     tb = tier_boxes(m) if not pitched else None
     if tb:
         for p, z0, z1, _ in tb:
@@ -194,7 +198,7 @@ def _building_parts(m, floor_height=3.3):
             ring = (p.difference(inner) if not inner.is_empty else p).difference(tb[i + 1][0])
             for q in _polys(ring):
                 if q.area > 0.05:
-                    parts.append(("parapet", "ext", q, z1, z1 + 1.1))
+                    parts.append(("parapet", "ext", q, z1, z1 + ROOF_DECK + PARAPET_H))
         poly = tb[-1][0]
     else:
         parts.append(("body", "ext", poly, base, top))
@@ -214,7 +218,7 @@ def _building_parts(m, floor_height=3.3):
                 parts.append(("roof", "ext", p, top, top + ROOF_DECK))
         for p in _polys(ring):
             if p.area > 0.05:
-                parts.append(("parapet", "ext", p, top, top + PARAPET_H))
+                parts.append(("parapet", "ext", p, top, top + ROOF_DECK + PARAPET_H))
         # 옥탑
         c, u, L, W = _axis_frame(poly)
         if kind == "아파트" and floors >= 5:

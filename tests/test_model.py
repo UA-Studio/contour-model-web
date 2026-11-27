@@ -30,6 +30,27 @@ def test_라이노_파일_열림(basic_model):
     assert any("건물" in l for l in layers), layers[:20]
 
 
+def test_라이노_창_구멍이_벽_판_안에_있음(basic_model):
+    """창 구멍(안쪽 윤곽)이 벽 판(바깥 윤곽) 안에 있어야 Rhino 가 벽을 그린다.
+    v2.3.1 에서는 구멍이 땅 높이만큼 위로 떠서 벽이 사라지고 창 테두리만 공중에 떠 보였다."""
+    import rhino3dm
+    out, _ = basic_model
+    m = rhino3dm.File3dm.Read(str(out / "model.3dm"))
+    n = 0
+    for o in m.Objects:
+        g = o.Geometry
+        if not isinstance(g, rhino3dm.Extrusion) or g.ProfileCount < 2:
+            continue
+        ob = g.Profile3d(0, 0.0).GetBoundingBox()
+        for i in range(1, g.ProfileCount):
+            hb = g.Profile3d(i, 0.0).GetBoundingBox()
+            for a in "XYZ":
+                assert getattr(ob.Min, a) - 0.01 <= getattr(hb.Min, a) and getattr(hb.Max, a) <= getattr(ob.Max, a) + 0.01, \
+                    (o.Attributes.Name, a, getattr(hb.Min, a), getattr(ob.Min, a), getattr(ob.Max, a))
+            n += 1
+    assert n > 100, "창 구멍 뚫린 벽이 거의 없음"
+
+
 def test_레이저_판_열림(basic_model):
     import ezdxf
     out, _ = basic_model
@@ -75,14 +96,14 @@ def test_계단식_대지(basic_model):
 
 
 def test_기본값은_스케치업만(skp_model):
-    """v2.2 기본: 스케치업 파일(+결과 화면용 미리보기 GLB·그림)만. Rhino·STL·레이저 DXF 는 만들지 않는다."""
+    """윈도우판 기본: 스케치업 파일(+결과 화면용 미리보기 GLB·그림)만. Rhino·STL·레이저 DXF·2D 도면은 만들지 않는다."""
     out, s = skp_model
     f = _files(out)
     for name in ("model_sketchup.dae", "model_sketchup_build.json", "model.glb", "preview_plan.png", "summary.json"):
         assert name in f, f"{name} 이 없음"
-    assert not {"model.3dm", "model.stl"} & set(f), sorted(f)
+    assert not {"model.3dm", "model.stl", "plan_2d.dxf"} & set(f), sorted(f)
     assert not any(n.startswith("laser/") for n in f), "레이저 판이 만들어짐"
-    assert s["outputs"] == ["skp"] and s["sheets"] is None
+    assert s["outputs"] == ["sketchup"]
 
 
 def test_스케치업에_대지_표시가_들어감(skp_model):
@@ -96,20 +117,29 @@ def test_스케치업에_대지_표시가_들어감(skp_model):
 
 
 def test_rhino3dm_없이도_스케치업_만들기(tmp_path, fake_sheet, monkeypatch):
-    """윈도우판(v2.2)에는 rhino3dm 이 없다: 불러오지 않고 끝나야 한다."""
+    """윈도우판에는 rhino3dm 이 없다: 불러오지 않고 끝나야 한다."""
     import sys
     from conftest import _run
-    from contour_ai import contour_model
+    from contour_ai import out_rhino
     monkeypatch.setitem(sys.modules, "rhino3dm", None)      # import 하면 ImportError
-    monkeypatch.setattr(contour_model._Rhino, "_m", None)   # 앞 시험이 불러 둔 것도 잊게
+    monkeypatch.setattr(out_rhino._Rhino, "_m", None)       # 앞 시험이 불러 둔 것도 잊게
     s = _run(fake_sheet, tmp_path / "out", size=150, detail=1, lights=False, road_detail=False)
-    assert s["outputs"] == ["skp"]
+    assert s["outputs"] == ["sketchup"]
 
 
 def test_rhino3dm_없을_때_Rhino_를_고르면_한국어_안내(monkeypatch):
     import sys
-    from contour_ai import contour_model
+    from contour_ai import out_rhino
     monkeypatch.setitem(sys.modules, "rhino3dm", None)
-    monkeypatch.setattr(contour_model._Rhino, "_m", None)
+    monkeypatch.setattr(out_rhino._Rhino, "_m", None)
     with pytest.raises(SystemExit, match="스케치업 파일만"):
-        contour_model.r3.File3dm()
+        out_rhino.r3.File3dm()
+
+
+def test_모르는_받을_파일_종류는_한국어_안내():
+    from types import SimpleNamespace
+    from contour_ai.contour_model import _outputs
+    assert _outputs(SimpleNamespace(outputs=None, sketchup=True)) == {"sketchup"}
+    assert _outputs(SimpleNamespace(outputs="plan, sketchup", sketchup=False)) == {"plan"}
+    with pytest.raises(SystemExit, match="모르는 받을 파일"):
+        _outputs(SimpleNamespace(outputs=["3dm"], sketchup=True))
