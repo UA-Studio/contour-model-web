@@ -75,6 +75,16 @@ def _box(c, u, L, W):
     return Polygon(pts)
 
 
+def _zmin(geom, zground, step=10.0):
+    """도형 위 땅 높이 가운데 가장 낮은 값. 비탈에서 긴 대합실·선로가 낮은 쪽 땅 위로 튀어나오지 않게 (v2.4.1)."""
+    pts = [geom.representative_point()]
+    for g in getattr(geom, "geoms", [geom]):
+        ring = g.exterior if g.geom_type == "Polygon" else g
+        n = max(2, int(ring.length // step) + 1)
+        pts += [ring.interpolate(t, normalized=True) for t in np.linspace(0, 1, n)]
+    return min(zground(q.x, q.y) for q in pts)
+
+
 def meshes(ug, zground, road=None, clip=None):
     """[(메시, 레이어, 색, 이름)] — 월드 좌표. zground(x, y) = 그 자리 땅 높이."""
     out = []
@@ -89,9 +99,9 @@ def meshes(ug, zground, road=None, clip=None):
             for seg in getattr(g, "geoms", [g]):
                 if seg.geom_type != "LineString" or seg.length < 1:
                     continue
-                c = seg.interpolate(0.5, normalized=True)
-                z0 = zground(c.x, c.y)
-                m = _slab(seg.buffer(w / 2, cap_style=2, join_style=2), z0 - top, z0 - bot)
+                fp = seg.buffer(w / 2, cap_style=2, join_style=2)
+                z0 = _zmin(fp, zground)
+                m = _slab(fp, z0 - top, z0 - bot)
                 if m is not None:
                     out.append((m, LAYER[kind], RGB[kind], "지하보도" if kind == "tunnel" else "지하철 연결통로"))
     # 지하철 선로(OSM, v2.3): 복선 터널 폭 10m, 승강장 아래 깊이
@@ -101,12 +111,21 @@ def meshes(ug, zground, road=None, clip=None):
         for seg in getattr(g, "geoms", [g]):
             if g.is_empty or seg.geom_type != "LineString" or seg.length < 2:
                 continue
-            c = seg.interpolate(0.5, normalized=True)
-            z0 = zground(c.x, c.y)
+            # 40m 마디마다 그 마디의 가장 낮은 땅 기준 (긴 선로가 비탈 낮은 쪽에서 튀어나오지 않게, 높은 쪽은 너무 깊지 않게)
+            from shapely.ops import substring
+            n = max(1, int(math.ceil(seg.length / 40.0)))
             top, bot = DEPTH["line"]
-            m = _slab(seg.buffer(5.0, cap_style=2, join_style=2), z0 - top, z0 - bot)
-            if m is not None:
-                out.append((m, LAYER["line"], RGB["line"], "지하철 선로 터널 (© OpenStreetMap contributors)"))
+            parts = []
+            for k in range(n):
+                piece = substring(seg, seg.length * k / n, seg.length * (k + 1) / n)
+                fp = piece.buffer(5.0, cap_style=2, join_style=2)
+                z0 = _zmin(fp, zground)
+                pm = _slab(fp, z0 - top, z0 - bot)
+                if pm is not None:
+                    parts.append(pm)
+            if parts:
+                out.append((trimesh.util.concatenate(parts), LAYER["line"], RGB["line"],
+                            "지하철 선로 터널 (© OpenStreetMap contributors)"))
     subs = unary_union([ln.buffer(3.0) for ln in ug.get("subway", [])]) if ug.get("subway") else None
     for x, y, name, line in ug.get("stations", []):
         p = Point(x, y)
@@ -136,6 +155,7 @@ def meshes(ug, zground, road=None, clip=None):
         label = f"{name}역 ({line})" if name and not name.endswith("역") else f"{name} ({line})"
         conc = _box(c, u, min(200.0, max(90.0, L)), 24.0)
         plat = _box(c, u, 180.0, 12.0)
+        z0 = min(z0, _zmin(conc if clip is None else (conc.intersection(clip) if conc.intersects(clip) else conc), zground))
         for kind, poly in (("concourse", conc), ("platform", plat)):
             if clip is not None:
                 poly = poly.intersection(clip)

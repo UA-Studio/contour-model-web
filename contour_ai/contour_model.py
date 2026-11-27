@@ -437,7 +437,11 @@ def _road_detail(st):
                     log(f"   ({e})")
                 if st.osm:
                     st.transit_items += entrances_to_items(st.osm["entrances"], st.path_areas.get("road"),
-                                                           st.transit_items, log)
+                                                           st.transit_items, log, blds=blds_rd)
+            if st.lights and st.transit_items:       # 가로등이 정류장 지붕·출입구 캐노피를 뚫지 않게 (v2.4.1)
+                from .transit import clear_lights
+                st.lights = clear_lights(st.lights, st.transit_items,
+                                         lambda x, y: level_at(st.regions, Point(x, y)), log)
             st.road_info["transit"] = st.transit_items
             if st.wipe is not None:
                 st.road_info["islands_inferred"] = (st.road_info["islands_inferred"].difference(st.wipe)

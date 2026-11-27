@@ -1,0 +1,34 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{margin:0;background:#fff}</style>
+<script type="importmap">{"imports":{"three":"./vendor/three.module.min.js"}}</script></head><body>
+<script type="module">
+import * as THREE from 'three';
+import {GLTFLoader} from './vendor/addons/loaders/GLTFLoader.js';
+const q = new URLSearchParams(location.search);
+const W = +q.get('w')||1400, H = +q.get('h')||900;
+const cam = q.get('cam').split(',').map(Number), tgt = q.get('t').split(',').map(Number);
+const hide = (q.get('hide')||'').split(',').filter(Boolean);
+const ghost = (q.get('ghost')||'').split(',').filter(Boolean);
+const r = new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true});
+r.setPixelRatio(1); r.setSize(W,H); r.shadowMap.enabled=true; r.shadowMap.type=THREE.PCFSoftShadowMap;
+r.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(r.domElement);
+const sc = new THREE.Scene(); sc.background = new THREE.Color(0xffffff);
+const c = new THREE.PerspectiveCamera(+q.get('fov')||35, W/H, 0.1, 5000);
+c.up.set(0,0,1); c.position.set(...cam); c.lookAt(...tgt);
+sc.add(new THREE.HemisphereLight(0xffffff, 0x8a8a80, 1.6));
+const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+sun.position.set(tgt[0]-60, tgt[1]-90, tgt[2]+140); sun.target.position.set(...tgt);
+sun.castShadow=true; sun.shadow.mapSize.set(4096,4096);
+const s = +q.get('sh')||80; Object.assign(sun.shadow.camera,{left:-s,right:s,top:s,bottom:-s,near:1,far:600}); sun.shadow.bias=-0.0004;
+sc.add(sun, sun.target);
+new GLTFLoader().load(q.get('glb')||'model.glb', g => {
+  g.scene.traverse(o => { if (!o.isMesh) return;
+    if (hide.some(h => o.name.startsWith(h))) { o.visible=false; return; }
+    if (o.geometry.index) o.geometry = o.geometry.toNonIndexed(); o.geometry.computeVertexNormals();
+    const m = new THREE.MeshLambertMaterial({vertexColors: !!o.geometry.attributes.color, side: THREE.DoubleSide, flatShading: true});
+    if (!o.geometry.attributes.color && o.material.color) m.color.copy(o.material.color);
+    if (ghost.some(h => o.name.startsWith(h))) { m.transparent=true; m.opacity=0.18; m.depthWrite=false; }
+    else { o.castShadow = true; o.receiveShadow = true; }
+    o.material = m; });
+  sc.add(g.scene); r.render(sc,c); document.title='done'; });
+</script></body></html>

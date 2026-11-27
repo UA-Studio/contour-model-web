@@ -35,6 +35,49 @@ def _rect(poly):
     return c.mean(axis=0), e1 / max(L, 1e-9), e2 / max(W, 1e-9), L, W
 
 
+def _rect_poly(c, u, v, L, W):
+    """중심 c, 긴 축 u(길이 L), 짧은 축 v(폭 W) 사각형."""
+    c, u, v = np.asarray(c, float), np.asarray(u, float), np.asarray(v, float)
+    return Polygon([c - u * L / 2 - v * W / 2, c + u * L / 2 - v * W / 2,
+                    c + u * L / 2 + v * W / 2, c - u * L / 2 + v * W / 2])
+
+
+def footprint(d, pad=0.0):
+    """정류장·출입구가 차지하는 바닥 (표지 기둥 자리 포함)."""
+    L, W = d["L"], d["W"]
+    extra = 1.0 if d["kind"] in ("버스정류장", "지하철출입구") else 0.0   # 표지판·표지 기둥
+    return _rect_poly(d["c"], d["u"], d["v"], L + 2 * extra, W + 2 * extra).buffer(pad, join_style=2)
+
+
+def clear_lights(lights, items, level_at=None, log=print):
+    """가로등이 정류장 지붕·지하철 출입구 캐노피를 뚫지 않게, 걸린 가로등을 연석 방향(u)으로 지붕 끝 밖까지 옮긴다 (v2.4.1).
+    lights: [(x, y, z, h, ang, kind, src)], level_at(x, y) → 새 자리 판 높이."""
+    if not lights or not items:
+        return lights
+    fps = [(d, footprint(d, 0.3)) for d in items]
+    out, moved = [], 0
+    for t in lights:
+        x, y = t[0], t[1]
+        hit = next(((d, fp) for d, fp in fps if fp.contains(Point(x, y))), None)
+        if hit is None:
+            out.append(t)
+            continue
+        d, fp = hit
+        u = np.asarray(d["u"], float)
+        s = float(np.dot(np.array([x, y]) - np.asarray(d["c"], float), u))
+        half = d["L"] / 2 + 1.0 + 0.3 + 0.5
+        p = np.array([x, y]) + u * ((half - s) if s >= 0 else (-half - s))
+        if any(f.contains(Point(*p)) for _, f in fps):
+            moved += 1
+            continue                                         # 옮길 자리도 막힘: 뺀다
+        z = level_at(*p) if level_at else t[2]
+        out.append((float(p[0]), float(p[1]), z) + tuple(t[3:]))
+        moved += 1
+    if moved:
+        log(f"   정류장·지하철 출입구 자리에 걸린 가로등 {moved}개를 옆으로 옮김")
+    return out
+
+
 def classify(masses, road, walk, nodes=(), log=print):
     """무벽건물을 골라 masses 에서 빼고 정류장·출입구로. 반환 [dict(kind, poly, c, u, v, L, W, ...)]"""
     from shapely import prepare

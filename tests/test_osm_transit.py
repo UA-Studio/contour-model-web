@@ -71,3 +71,34 @@ def test_선로_터널과_역은_선로_방향(monkeypatch, tmp_path):
     ext = plat.bounds[1] - plat.bounds[0]
     assert ext[0] > 150 and ext[1] < 20             # 동서로 놓인 선로를 따라 길쭉
     assert plat.bounds[1][2] <= 20 - 13 + 1e-6
+
+
+def test_건물_안_출입구는_캐노피_없음_캐노피는_차도에_안_걸침(monkeypatch, tmp_path):
+    """v2.4.1: OSM 출입구 점이 건물 안이면 캐노피를 세우지 않고, 연석 가까운 점은 보도 안쪽으로 민다."""
+    road = box(201300, 554790, 201800, 554808)
+    bld = box(201500, 554820, 201520, 554840)
+    ents = [(201410.0, 554809.0, "1", ""), (201510.0, 554830.0, "2", "")]   # 1: 연석에서 1m, 2: 건물 안
+    new = ot.entrances_to_items(ents, road, [], log=lambda *a: None, blds=bld)
+    assert [d["ref"] for d in new] == ["1"]
+    fp = transit._rect_poly(new[0]["c"], new[0]["u"], new[0]["v"], new[0]["L"], new[0]["W"])
+    assert fp.intersection(road).area < 0.01
+
+
+def test_가로등이_정류장_지붕을_뚫지_않음():
+    d = dict(kind="지하철출입구", c=np.array([100.0, 10.0]), u=np.array([1.0, 0]), v=np.array([0, 1.0]), L=6.0, W=3.2)
+    lights = [(101.0, 10.0, 5.0, 8.0, 0.0, "가로등", "추정"), (130.0, 10.0, 5.0, 8.0, 0.0, "가로등", "추정")]
+    out = transit.clear_lights(lights, [d], lambda x, y: 6.0, log=lambda *a: None)
+    assert len(out) == 2 and out[1] == lights[1]
+    fp = transit.footprint(d)
+    from shapely.geometry import Point
+    assert not fp.contains(Point(out[0][0], out[0][1])) and out[0][2] == 6.0
+
+
+def test_비탈에서도_대합실_선로가_땅_위로_안_나옴():
+    """땅이 동쪽으로 10m 에 1m 씩 낮아지는 비탈: 대합실·선로 윗면이 어디서나 땅보다 깊이 아래."""
+    zg = lambda x, y: 100.0 - 0.1 * (x - 201300)
+    ug = dict(tunnel=[], subway=[], stations=[(201500.0, 554850.0, "가짜역", "")],
+              lines=[LineString([(201300, 554850), (201800, 554850)])])
+    for m, layer, _, _ in underground.meshes(ug, zg):
+        v = m.vertices
+        assert (v[:, 2] <= zg(v[:, 0], 0) - 2.9).all(), layer

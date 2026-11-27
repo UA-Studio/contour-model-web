@@ -103,12 +103,21 @@ def fetch(bbox, crs_wkt, cache_dir=None, log=print):
     return out
 
 
-def entrances_to_items(entrances, road, existing, log=print):
-    """OSM 출입구 점 → 이미 무벽건물로 찾은 출입구(15m 안)에는 번호만 붙이고, 없으면 표준 캐노피를 세운다."""
+def entrances_to_items(entrances, road, existing, log=print, blds=None):
+    """OSM 출입구 점 → 이미 무벽건물로 찾은 출입구(15m 안)에는 번호만 붙이고, 없으면 표준 캐노피를 세운다.
+
+    v2.4.1: 점이 건물 안이면(건물 1층·지하로 바로 들어가는 출입구) 캐노피를 세우지 않는다(건물 속에 묻혀 안 보이고 겹침).
+    캐노피는 차도에 걸치지 않게 연석에서 0.3m 안쪽으로 밀고, 그래도 건물과 겹치면 세우지 않는다.
+    """
     import numpy as np
     from shapely.geometry import Point
     from shapely.ops import nearest_points
-    out, tagged = [], 0
+    out, tagged, in_bld = [], 0, 0
+    if blds is not None and not blds.is_empty:
+        from shapely import prepare
+        prepare(blds)
+    else:
+        blds = None
     exist = [d for d in existing if d["kind"] == "지하철출입구"]
     for x, y, ref, name in entrances:
         near = [d for d in exist if np.hypot(*(np.asarray(d["c"]) - (x, y))) < 15]
@@ -119,6 +128,9 @@ def entrances_to_items(entrances, road, existing, log=print):
             continue
         if road is None or road.is_empty:
             continue
+        if blds is not None and blds.intersects(Point(x, y).buffer(0.5)):
+            in_bld += 1                                      # 건물 안 출입구: 캐노피 없음
+            continue
         q = nearest_points(road.boundary, Point(x, y))[0]
         b = road.boundary
         s = b.project(q)
@@ -128,10 +140,24 @@ def entrances_to_items(entrances, road, existing, log=print):
         v = np.array([-u[1], u[0]])
         if road.contains(Point(x, y)):
             continue                                         # 차도 한가운데 점은 위치가 어긋난 것
+        L, W = 6.0, 3.2
+        qa = np.array([q.x, q.y])
+        if road.contains(Point(*(qa + v * 0.5))):
+            v = -v                                           # v 는 차도 반대쪽(보도 안쪽)
         c = np.array([x, y])
+        d = float(np.dot(c - qa, v))                         # 연석에서 점까지 거리
+        if d < W / 2 + 0.3:
+            c = c + v * (W / 2 + 0.3 - d)                    # 차도에 걸치지 않게 보도 안쪽으로
         # 캐노피는 연석과 나란히, 점(입구 자리)이 +u 끝에 오도록 조금 뒤로
-        out.append(dict(kind="지하철출입구", poly=None, c=c - u * 2.5, u=u, v=v, L=6.0, W=3.2, src="OSM",
+        c = c - u * 2.5
+        if blds is not None:
+            from .transit import _rect_poly
+            if blds.intersects(_rect_poly(c, u, v, L, W)):
+                in_bld += 1                                  # 보도가 좁아 건물과 겹침: 세우지 않음
+                continue
+        out.append(dict(kind="지하철출입구", poly=None, c=c, u=u, v=v, L=L, W=W, src="OSM",
                         ref=ref, name=name))
-    if out or tagged:
-        log(f"   OSM 지하철 출입구: 새로 {len(out)}곳, 번호만 붙인 곳 {tagged}곳")
+    if out or tagged or in_bld:
+        log(f"   OSM 지하철 출입구: 새로 {len(out)}곳, 번호만 붙인 곳 {tagged}곳"
+            + (f", 건물 안·건물과 겹쳐 캐노피 없이 둔 곳 {in_bld}곳" if in_bld else ""))
     return out
