@@ -71,11 +71,12 @@ windows/             윈도우판 묶기 스크립트·실행 .bat·안내문
 
 ### 무엇을 고치려면 어느 파일을 (기능별로 나뉘어 있음)
 
-한 파일을 고쳐도 다른 기능에는 영향이 없도록 기능마다 파일을 나눠 두었습니다. 고칠 것에 맞는 파일만 열면 됩니다.
+한 파일을 고쳐도 다른 기능에는 영향이 없도록 기능마다 파일을 나눠 두었습니다. 고칠 것에 맞는 파일만 열면 됩니다. 고칠 때 지킬 규칙과 전체 지도는 [CLAUDE.md](CLAUDE.md) 에 있습니다.
 
 | 고칠 것 | 파일 (`contour_ai/` 안) |
 |---|---|
-| 모델 만들기 전체 순서 (어떤 단계를 어떤 순서로) | `contour_model.py`: `build` 가 단계 함수(`_heights`, `_pads`, `_buildings`, `_trees`, `_slope`, `_save` …)를 차례로 부름 · `pipeline.py` |
+| 모델 만들기 전체 순서 (어떤 단계를 어떤 순서로) | `build_flow.py`: `build` 가 단계 함수를 차례로 부름 · 단계는 `build_prepare.py`(지형) · `build_buildings.py`(건물) · `build_streets.py`(길·나무·도로) · `build_surface.py`(얹기·경사·대지 표시) · `build_save.py`(저장·요약) · `pipeline.py` |
+| 기본 설정값 / 받을 파일 종류(기본 스케치업만) | `build_defaults.py` / `output_kinds.py` |
 | 수치지도 읽기 (레이어 코드, SHP·DXF) | `mapdata.py` |
 | 땅 모양 (등고선 → 높이, 계단 판, 경사면, 건물 터) | `terrain.py` · 계단식 대지 `pads.py` · DEM `dem.py` |
 | 건물 덩어리 (층수 → 높이, 용도 색) | `buildings.py` · 창문·지붕 `building_detail.py` · 외관 `facade.py` |
@@ -88,12 +89,12 @@ windows/             윈도우판 묶기 스크립트·실행 .bat·안내문
 | ㄴ 차선·정지선·화살표 | `road_marks.py` |
 | ㄴ 신호등·전봇대 | `road_fixtures.py` |
 | ㄴ 교통섬 / 주차 구획 / 자료 파일 | `road_islands.py` / `road_parking.py` / `road_sources.py` |
-| 결과 파일: Rhino / STL / 레이저 판 / 스케치업 | `out_rhino.py` / `out_stl.py` / `out_laser.py` / `skp_export.py` |
+| 결과 파일: Rhino / STL / 레이저 판 / 스케치업 | `out_rhino.py` / `out_stl.py` / `out_laser.py` / `skp_write.py`(.dae 바탕 `skp_dae.py` · 확장 Ruby `skp_ruby.py` · 스케치업 실행 `skp_app.py`) |
 | 2D 지형도 DXF · 사이트 다이어그램 SVG / 영역별 지형(도로·보도·녹지·물·대지) | `out_plan.py` / `terrain_zones.py` |
 | 평면 확인 그림 / 만드는 중 화면 그림 | `preview.py` / `live_view.py` |
-| 대지 경계·사업지 도면 | `site.py` · `sitefile.py` |
+| 대지 경계·사업지 도면 | 파일 읽기 `site_read.py` · 도면 좌표 맞추기 `site_align.py` · 불러오기·레벨 `site_load.py` · 레벨 지형 `site_levels.py` · 대지 위 비우기 `site_cut.py` · 정리 `sitefile.py` |
 | 결과 폴더 사용 안내(단위·여는 법) / 예시 도엽 | `guide.py` / `sample_sheet.py` |
-| 서버·화면 주고받기 | `app.py` · 지도 그림 `app_mapview.py` · 대지 파일 정리 `app_siteprep.py` · 작은 도구 `app_util.py` |
+| 서버·화면 주고받기 | 요청 처리 `app_http.py` · 만들기 요청 `app_start.py` · 작업 `app_jobs.py` · 결과 `app_results.py` · 설정·상태 `app_state.py` · 켜기 `app_server.py` · 지도 그림 `app_mapview.py` · 대지 파일 정리 `app_siteprep.py` · 작은 도구 `app_util.py` |
 
 화면(`contour_ai/web/`)도 칸별로 나뉘어 있습니다: 모양은 `app.css`, 동작은 `ui_files.js`(파일 넣기) · `ui_site.js`(대지) · `ui_prep.js`(대지 파일 정리) · `ui_map.js`(범위·지도) · `ui_run.js`(만들기·진행) · `ui_results.js`(결과) · `ui_errors.js`(오류 안내) · `ui_view3d.js`(3D 보기) · `ui_presets.js`(왼쪽 설정) · `ui_server.js`(공개 서버·의견 보내기). 여러 칸이 함께 쓰는 값은 `ui_common.js` 의 `st` 에 모여 있습니다.
 

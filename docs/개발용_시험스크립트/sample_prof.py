@@ -14,7 +14,7 @@ def sampler():
         if ours:
             a = ours[0]; inner = chain[0]
             hits[f"{os.path.basename(a.f_code.co_filename)}:{a.f_code.co_name}:{a.f_lineno} → {inner.f_code.co_name}"] += 1
-            top = [c for c in ours if os.path.basename(c.f_code.co_filename) == "contour_model.py"]
+            top = [c for c in ours if os.path.basename(c.f_code.co_filename).startswith("build_")]  # build_flow → 단계(build_*.py)
             if top: outer[f"{top[-2].f_code.co_name if len(top) > 1 else top[-1].f_code.co_name}"] += 1
         time.sleep(0.25)
 threading.Thread(target=sampler, daemon=True).start()

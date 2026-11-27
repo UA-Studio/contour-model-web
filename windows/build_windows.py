@@ -22,7 +22,7 @@ TOP = "콘타모델_윈도우"
 SKIP_STD = {"site-packages", "test", "idlelib", "tkinter", "turtledemo", "ensurepip", "lib2to3", "__pycache__", "venv",
             "pydoc_data"}
 SKIP_APP = ("__pycache__", "*.pyc")
-# v2.2 윈도우판은 스케치업 파일만 만든다 → Rhino(3dm) 라이브러리는 넣지 않는다 (contour_model.OUTPUTS_DEFAULT)
+# v2.2 윈도우판은 스케치업 파일만 만든다 → Rhino(3dm) 라이브러리는 넣지 않는다 (output_kinds.OUTPUTS_DEFAULT)
 SKIP_PKGS = {"rhino3dm"}
 
 

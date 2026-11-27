@@ -15,9 +15,12 @@ def app(tmp_path, monkeypatch):
     monkeypatch.setenv("CONTOUR_SERVER", "1")
     monkeypatch.setenv("CONTOUR_DATA", str(tmp_path / "data"))
     import contour_ai.app as m
+    import contour_ai.app_state as st          # 서버 설정·상태는 app_state 에 있다 → 다시 불러와 서버 모드로
+    importlib.reload(st)
     m = importlib.reload(m)
     yield m
     monkeypatch.delenv("CONTOUR_SERVER")
+    importlib.reload(st)
     importlib.reload(m)
 
 

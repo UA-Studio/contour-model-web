@@ -25,9 +25,12 @@ def app(tmp_path, monkeypatch):
     monkeypatch.setenv("CONTOUR_SERVER", "1")
     monkeypatch.setenv("CONTOUR_DATA", str(tmp_path / "data"))
     import contour_ai.app as m
+    import contour_ai.app_state as st          # 서버 설정·상태는 app_state 에 있다 → 다시 불러와 서버 모드로
+    importlib.reload(st)
     m = importlib.reload(m)
     yield m
     monkeypatch.delenv("CONTOUR_SERVER")
+    importlib.reload(st)
     importlib.reload(m)
 
 
@@ -50,7 +53,7 @@ def test_시간_초과는_멈추기와_다르게_이유가_보임(app):
     job.cancelled = job.timed_out = False
     job.timeout()
     assert job.cancelled and job.timed_out
-    src = (ROOT / "contour_ai" / "app.py").read_text(encoding="utf-8")
+    src = (ROOT / "contour_ai" / "app_http.py").read_text(encoding="utf-8")     # /status 응답
     assert "cancelled=job.cancelled and not job.timed_out" in src
     web = ROOT / "contour_ai" / "web"           # 화면은 index.html + 기능별 ui_*.js 로 나뉘어 있음
     html = "\n".join(p.read_text(encoding="utf-8") for p in [web / "index.html", *sorted(web.glob("ui_*.js"))])
@@ -81,7 +84,8 @@ def test_쉬는_칸은_지우고_만드는_중인_칸은_남김(app, monkeypatch
     busy["state"]["job"] = _FakeJob(done=False)
     me = _session(app, "m" * 20, at=time.time() - 3600 * 9)
     free = iter([100, 100, 100, 99999, 99999, 99999])          # 처음엔 모자라고, 하나 지우면 충분
-    monkeypatch.setattr(app, "_free_mb", lambda: next(free, 99999))
+    from contour_ai import app_sessions                   # 칸 정리는 app_sessions.py
+    monkeypatch.setattr(app_sessions, "_free_mb", lambda: next(free, 99999))
     app._make_room(keep_sid=me["sid"])
     assert idle["sid"] not in app.SESSIONS and not os.path.exists(idle["home"])
     assert busy["sid"] in app.SESSIONS and os.path.isdir(busy["home"])
