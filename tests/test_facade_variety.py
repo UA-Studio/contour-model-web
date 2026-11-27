@@ -129,3 +129,102 @@ def test_셋백_건물_벽이_두_벌_생기지_않음(tmp_path):
             hb = g.Profile3d(k, 0.0).GetBoundingBox()
             assert ob.Min.Z < hb.Min.Z < hb.Max.Z < ob.Max.Z
     assert max(o.Geometry.GetBoundingBox().Max.Z for o in walls) <= m["top"] + 0.01
+
+
+# ---------------------------------------------------------------- v2.4 건물 용도·매스에 맞는 창
+def _kinds(m):
+    from contour_ai.facade_windows import edge_roles
+    out = []
+    for lay in facade.layout(m):
+        roles = edge_roles([e[:4] for e in lay["edges"]])
+        for (A, t, nrm, L, ops), r in zip(lay["edges"], roles):
+            out.append((r, L, ops))
+    return out
+
+
+def test_빌라는_창_크기가_섞이고_계단창이_층_사이에():
+    attrs = {"대장_주용도": "공동주택", "대장_기타용도": "다세대주택", "대장_사용승인일": "20030101"}
+    m = _m(0, attrs, floors=4, w=11, d=12)
+    facade.assign([m], log=lambda *a: None)
+    assert m["facade"]["window"] == "villa" and m["facade"]["type"] == "다세대·다가구 빌라"
+    facade.clear_cache()
+    ops = [o for _, _, e in _kinds(m) for o in e]
+    widths = {round(o[1] - o[0], 1) for o in ops}
+    assert len(widths) >= 3                                   # 거실·방·주방·욕실 창이 섞임
+    stair = [o for o in ops if o[4] == "stair"]
+    assert len(stair) >= 3
+    fh = m["floor_h"]
+    for o in stair:                                           # 계단참 높이: 층 바닥과 어긋남
+        assert 0.3 * fh < (o[2] % fh) < 0.8 * fh
+
+
+def test_판상형_아파트_앞은_발코니_뒤는_코어():
+    m = _m(0, {"대장_주용도": "공동주택", "대장_기타용도": "아파트", "대장_사용승인일": "20050101"},
+           layer="아파트", floors=15, w=60, d=12)
+    facade.assign([m], log=lambda *a: None)
+    facade.clear_cache()
+    ed = _kinds(m)
+    front = [o for r, L, e in ed if r == "front" for o in e]
+    back = [o for r, L, e in ed if r == "back" for o in e]
+    assert front and all(o[4] == "balc" for o in front)
+    assert any(o[4] == "stair" for o in back) and any(o[4] == "bath" for o in back)
+    # 남쪽(y=0) 면이 앞
+    fr = [e for e in facade.layout(m)[0]["edges"] if e[2][1] < -0.9][0]
+    assert all(o[4] == "balc" for o in fr[4])
+
+
+def test_학교는_교실쪽_띠창_복도쪽_작은창():
+    m = _m(0, {"대장_주용도": "교육연구시설", "명칭": "가짜초등학교"}, layer="일반건물", floors=4, w=70, d=16)
+    facade.assign([m], log=lambda *a: None)
+    assert m["facade"]["type"] == "학교"
+    facade.clear_cache()
+    ed = _kinds(m)
+    front = [o for r, L, e in ed if r == "front" for o in e]
+    back = [o for r, L, e in ed if r == "back" for o in e]
+    assert front and all(o[4] == "band" and o[1] - o[0] > 6 for o in front)
+    assert back and all(o[1] - o[0] < 2.5 and (o[2] % 3.0) > 1.0 for o in back)
+
+
+def test_이웃에_막힌_면은_창이_적고_상가유리가_없음():
+    attrs = {"대장_주용도": "공동주택", "대장_기타용도": "다세대주택", "대장_사용승인일": "20030101"}
+    fu = {1: "제1종근린생활시설", 2: "다세대주택", 3: "다세대주택", 4: "다세대주택"}
+    a = _m(0, attrs, floors=4, fu=fu)
+    b = _m(13.5, attrs, floors=4)                             # 1.5m 옆 건물
+    facade.assign([a, b], log=lambda *a_: None)
+    facade.clear_cache()
+    lay = facade.layout(a)[0]
+    east = [e for e in lay["edges"] if e[2][0] > 0.9][0]      # b 쪽 면
+    west = [e for e in lay["edges"] if e[2][0] < -0.9][0]
+    assert not [o for o in east[4] if o[4] in ("shop", "shutter")]
+    assert [o for o in west[4] if o[4] in ("shop", "shutter")]
+    area = lambda e: sum((o[1] - o[0]) * (o[3] - o[2]) for o in e[4])
+    assert area(east) < 0.5 * area(west)
+    assert lay["signs"]                                       # 상가 유리 위 간판 판
+
+
+def test_Rhino_창틀_창턱_유리틴트_레이어와_사각면(tmp_path):
+    import rhino3dm
+    from contour_ai.out_rhino import write_3dm
+    attrs = {"대장_주용도": "공동주택", "대장_기타용도": "다세대주택", "대장_사용승인일": "20030101"}
+    ms = [_m(i * 14, attrs, floors=4, fu={1: "제1종근린생활시설"}) for i in range(4)]
+    ms.append(_m(0, {"대장_주용도": "공동주택", "대장_기타용도": "아파트"}, layer="아파트", floors=15, w=60, d=12))
+    ms[-1]["poly"] = box(0, 40, 60, 52)
+    facade.assign(ms, log=lambda *a: None)
+    for m in ms:
+        m["facade"]["windows"] = True
+        m["source"] = "register"
+    facade.clear_cache()
+    p = tmp_path / "t.3dm"
+    write_3dm(str(p), {}, ms, [], (0.0, 0.0))
+    f = rhino3dm.File3dm.Read(str(p))
+    parts, mats = {}, set()
+    for o in f.Objects:
+        pn = o.Attributes.GetUserString("부위")
+        parts[pn] = parts.get(pn, 0) + 1
+        if isinstance(o.Geometry, rhino3dm.Mesh):
+            if pn in ("유리", "창틀", "창턱", "셔터", "간판"):
+                assert all(o.Geometry.Faces[k][2] != o.Geometry.Faces[k][3] for k in range(len(o.Geometry.Faces)))
+                mats.add(f.Materials[o.Attributes.MaterialIndex].Name)
+    assert parts.get("창틀") and parts.get("창턱") and parts.get("유리") and parts.get("간판")
+    assert len([n for n in mats if n.startswith("유리")]) >= 3
+    assert any(n.startswith("창틀") for n in mats)

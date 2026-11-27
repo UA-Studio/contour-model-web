@@ -41,6 +41,8 @@ MATERIALS = {
     "지붕 흑색 슁글·아스팔트": ((64, 64, 66), 0.0),
 }
 ROOF_PALETTE = [k for k in MATERIALS if k.startswith("지붕 ")]
+from .facade_windows import MATERIALS as _WIN_MATS   # 유리 틴트·창틀·창턱·셔터·간판 (v2.4)
+MATERIALS.update(_WIN_MATS)
 
 # 창 형식: (기준 간격, 창 폭, 창 높이, 창대 높이)
 WINDOW = {
@@ -53,9 +55,13 @@ WINDOW = {
     "balcony": (4.2, 3.2, 2.1, 0.15),     # 판상형 아파트: 발코니 큰 창 (v2.3)
     "bigpunch": (3.6, 2.4, 1.8, 0.6),     # 근생 꼬마빌딩: 큰 낱창 (v2.3)
     "tall": (4.0, 1.3, 2.8, 1.0),         # 종교·문화: 키 큰 창 (v2.3)
+    "villa": (3.2, 1.4, 1.4, 0.9),        # 다세대·다가구 빌라: 창 크기 섞임·계단창 (v2.4, facade_windows)
+    "school": (4.5, 4.1, 1.6, 0.9),       # 학교: 교실 쪽 띠창·복도 쪽 작은 창 (v2.4)
 }
 TYPE_KO = {"punch": "낱창", "apt": "타워형 아파트", "ribbon": "띠창", "curtain": "커튼월", "small": "공장·창고",
-           "studio": "도시형생활주택", "balcony": "판상형 아파트", "bigpunch": "근생 꼬마빌딩", "tall": "종교·문화"}
+           "studio": "도시형생활주택", "balcony": "판상형 아파트", "bigpunch": "근생 꼬마빌딩", "tall": "종교·문화",
+           "villa": "다세대·다가구 빌라", "school": "학교"}
+PLANNED = ("villa", "ribbon", "balcony", "apt", "school")     # 면마다 짜는 창(facade_windows.plan_edge)
 DEPTH = 0.18          # 창 깊이(벽면에서 유리까지)
 
 
@@ -157,7 +163,13 @@ def refine(m, wall, win, purp, strc, y, fl, housing, office):
         return "목재", "punch", extra + ["한옥 추정"]
     if "종교" in txt:
         return _pick(rng, [("석재 패널", 2), ("붉은 벽돌", 2), ("백색 도장", 1)]), "tall", extra
+    name = str(at.get("명칭") or "") + str(at.get("대장_건물명") or "")
+    if "교육" in purp or any(w in name for w in ("학교", "초등", "중학", "고등")):
+        w = _pick(rng, [("백색 도장", 3), ("회색 노출콘크리트", 1), ("붉은 벽돌", 2), ("베이지 석재", 1)])
+        return w, "school", extra + ["학교: 교실 쪽 띠창"]
     if kind == "아파트" or ("공동주택" in purp and "아파트" in txt):
+        if fl < 6:          # 오래된 4~5층 아파트: 가로 띠창
+            return _pick(rng, [("백색 도장", 4), ("베이지 석재", 1)]), "ribbon", extra
         if fl >= 6:
             ctr = m["poly"].minimum_rotated_rectangle if area else None
             if ctr is not None and not ctr.is_empty:
@@ -186,6 +198,8 @@ def refine(m, wall, win, purp, strc, y, fl, housing, office):
         win = "bigpunch"
     elif office and win == "ribbon":
         wall = _pick(rng, [("석재 패널", 3), ("베이지 석재", 1), ("금속 패널", 2)])
+    if housing and win == "punch" and fl <= 6 and kind != "아파트":
+        win = "villa"            # 다세대·다가구·단독: 창 크기 섞기·계단창 (v2.4)
     return wall, win, extra
 
 
@@ -315,6 +329,7 @@ def assign(masses, aerial_path=None, log=print):
         except Exception as e:
             log(f"   (항공사진 지붕 색을 읽지 못함: {e})")
     count = {}
+    nbrs = _neighbours(masses)
     for i, m in enumerate(masses):
         wall, win, basis = choose(m)
         if i in colors:
@@ -335,13 +350,30 @@ def assign(masses, aerial_path=None, log=print):
         fu = m.get("floor_uses") or {}
         shop_floors = sorted(k - 1 for k, u in fu.items() if k <= 3 and any(w in u for w in ("근린", "판매", "음식", "소매")))
         pil = bool(fu.get(1)) and any(w in fu[1] for w in ("주차", "필로티")) and int(m.get("floors") or 1) >= 3
+        from .facade_windows import pick_trim
         m["facade"] = dict(wall=tone_variant(wall, rng), roof=roof, window=win, basis=basis, roof_basis=rbasis,
                            type=TYPE_KO.get(win, win), jitter=jit, pilotis=pil,
-                           shop_floors=shop_floors if fu else None)
+                           shop_floors=shop_floors if fu else None, trim=pick_trim(win, _year(m), rng))
+        m["_nbr"] = nbrs.get(i, [])
         m.setdefault("attrs", {})["입면_유형"] = TYPE_KO.get(win, win) + (" · 필로티" if pil else "")
         count[wall] = count.get(wall, 0) + 1
     top = ", ".join(f"{k} {v}" for k, v in sorted(count.items(), key=lambda kv: -kv[1])[:5])
     log(f"   입면 재료: {top}" + (f" · 지붕색 항공사진 {len(colors)}동" if colors else ""))
+
+
+def _neighbours(masses, reach=4.0):
+    """건물마다 가까운(reach m 안) 이웃 건물 평면들 — 이웃에 막힌 면(창 적게·상가 유리 없음)을 가리는 데 쓴다."""
+    try:
+        from shapely.strtree import STRtree
+        polys = [m["poly"] for m in masses]
+        tree = STRtree(polys)
+        out = {}
+        for i, p in enumerate(polys):
+            idx = tree.query(p.buffer(reach, join_style=2))
+            out[i] = [polys[j] for j in idx if j != i]
+        return out
+    except Exception:
+        return {}
 
 
 # ---------------------------------------------------------------- 창이 뚫린 벽
@@ -416,6 +448,7 @@ _FM_CACHE = {}   # 건물 하나의 창문 메시는 3dm·GLB·스케치업 쓰�
 
 def clear_cache():
     _FM_CACHE.clear()
+    _LAY_CACHE.clear()
 
 
 def facade_meshes(m, floor_height=3.3, origin=(0.0, 0.0)):
@@ -429,7 +462,21 @@ def facade_meshes(m, floor_height=3.3, origin=(0.0, 0.0)):
     return out
 
 
+_LAY_CACHE = {}
+
+
 def layout(m, floor_height=3.3):
+    """같은 건물·같은 높이면 앞서 짠 입면을 돌려준다(Rhino·메시가 같이 씀, 읽기만 할 것)."""
+    key = (id(m), float(floor_height), m.get("base"), m.get("top"), m.get("floors"))
+    hit = _LAY_CACHE.get(key)
+    if hit is not None and hit[0] is m:
+        return hit[1]
+    out = _layout(m, floor_height)
+    _LAY_CACHE[key] = (m, out)
+    return out
+
+
+def _layout(m, floor_height=3.3):
     """입면 짜임: 벽 한 변마다 '온전한 한 면'(직사각형 + 창 구멍)으로. 메시·Rhino 솔리드가 같이 쓴다.
     반환 [tier dict]: wall, roof(재료), poly, base, zwall(벽 시작 높이), top,
                       edges=[(A, t, nrm, L, [(s0, s1, z0, z1) 창])], cols=[(x, y)] 필로티 기둥."""
@@ -442,7 +489,7 @@ def layout(m, floor_height=3.3):
             sub = dict(m, poly=p, base=z0, top=z1, floors=nf, tiers=None, height=z1 - max(z0, g0),
                        floor_h=(z1 - max(z0, g0)) / nf if m.get("floor_h") else None, floor_offset=off)
             off += nf
-            out += layout(sub, floor_height)
+            out += _layout(sub, floor_height)
         return out
     fc = m.get("facade") or {}
     wall_mat, roof_mat, style = fc.get("wall", "백색 도장"), fc.get("roof", "지붕 녹색 방수"), fc.get("window", "punch")
@@ -459,7 +506,7 @@ def layout(m, floor_height=3.3):
     sf = fc.get("shop_floors")
     if sf is None:
         shop0 = (m.get("use") == "근린생활시설" or "근린" in m.get("attrs", {}).get("대장_주용도", "")) \
-            and style in ("punch", "ribbon", "bigpunch", "studio")
+            and style in ("punch", "ribbon", "bigpunch", "studio", "villa")
         sf = [0] if shop0 else []
     shop = {k - off for k in sf if style != "curtain"}
     jit = fc.get("jitter")
@@ -467,8 +514,9 @@ def layout(m, floor_height=3.3):
     if fc.get("pilotis") and off == 0 and floors >= 3:      # 필로티: 1층은 벽 없이 기둥만
         zwall = g0 + fh
         shop = set()
-    edges = []
-    for ring in [poly.exterior, *poly.interiors]:
+    from . import facade_windows as fw
+    raw = []
+    for ri, ring in enumerate([poly.exterior, *poly.interiors]):
         c = np.asarray(ring.coords)[:, :2]
         for i in range(len(c) - 1):
             A, B = c[i], c[i + 1]
@@ -476,19 +524,49 @@ def layout(m, floor_height=3.3):
             if L < 0.05:
                 continue
             t = (B - A) / L
-            nrm = np.array([t[1], -t[0]])            # 바깥쪽
-            ops = []
-            if L >= 2.0 and top - base > 2.6:
-                for k in range(floors):
+            raw.append((A, t, np.array([t[1], -t[0]]), L, ri))      # 바깥쪽 법선
+    roles = fw.edge_roles([e[:4] for e in raw])
+    spec = fc.get("trim") or {}
+    seed = int(spec.get("seed", 0)) + off * 101
+    nbr = m.get("_nbr") or []
+    # 빌라 계단실: 북쪽을 보는(뒤) 바깥 면 한쪽 끝에 세로로 쌓인 계단창
+    stair_edge, stair_at = None, None
+    if style == "villa" and floors >= 2:
+        cand = [i for i, e in enumerate(raw) if e[4] == 0 and e[3] >= 3.5]
+        if cand:
+            stair_edge = max(cand, key=lambda i: raw[i][2][1])        # 법선이 가장 북쪽을 보는 면
+            Ls = raw[stair_edge][3]
+            stair_at = 1.3 if (seed + stair_edge) % 2 else Ls - 1.3
+    edges, signs = [], {}
+    for ei, (A, t, nrm, L, ri) in enumerate(raw):
+        ops, sg = [], []
+        blind = fw.blocked(A, t, nrm, L, nbr)
+        if L >= 2.0 and top - base > 2.6:
+            rng = np.random.default_rng([seed, ei])
+            planned = None
+            if style in PLANNED:
+                planned, sg = fw.plan_edge(style, roles[ei], blind, L, floors, fh, g0, zwall, top, shop, rng,
+                                           stair_at=stair_at if ei == stair_edge else None)
+            if planned is not None:
+                ops = list(planned)
+            if not ops and (planned is None or not blind):
+                for k in range(floors):         # 예전 방식(같은 간격 낱창·커튼월) — 막힌 면은 하나 걸러
                     zf = g0 + k * fh
                     if zf + 1.2 > top:
                         break
-                    if zf < zwall - 0.01:
+                    if zf < zwall - 0.01 or (blind and k in shop):
                         continue
-                    ops += _openings(L, zf, fh, top, style, k, shop, jit)
-            ops = [o for o in ops if o[1] - o[0] > 0.2 and o[3] - o[2] > 0.2
-                   and o[0] > 0.02 and o[1] < L - 0.02 and o[2] > zwall + 0.02 and o[3] < top - 0.02]
-            edges.append((A, t, nrm, L, _apart(ops)))
+                    kind = fw.SHOP if k in shop else fw.CURTAIN if style == "curtain" else fw.WIN
+                    got = _openings(L, zf, fh, top, style, k, shop, jit)
+                    if blind and style != "curtain":
+                        got = got[::2]
+                    ops += [(*o, kind) for o in got]
+        ops = [o for o in ops if o[1] - o[0] > 0.2 and o[3] - o[2] > 0.2
+               and o[0] > 0.02 and o[1] < L - 0.02 and o[2] > zwall + 0.02 and o[3] < top - 0.02]
+        edges.append((A, t, nrm, L, _apart(ops)))
+        sg = [q for q in sg if q[0] > 0.02 and q[1] < L - 0.02 and q[3] < top - 0.02]
+        if sg:
+            signs[len(edges) - 1] = sg
     cols = []
     if zwall > base:
         from shapely.geometry import Point
@@ -504,7 +582,8 @@ def layout(m, floor_height=3.3):
                     q = np.array([pp.x, pp.y])
                 if all(np.hypot(*(q - c_)) > 1.5 for c_ in cols):
                     cols.append(q)
-    return [dict(wall=wall_mat, roof=roof_mat, poly=poly, base=base, zwall=zwall, top=top, edges=edges, cols=cols)]
+    return [dict(wall=wall_mat, roof=roof_mat, poly=poly, base=base, zwall=zwall, top=top, edges=edges, cols=cols,
+                 signs=signs, trim=spec)]
 
 
 def _apart(ops, gap=0.08):
@@ -557,8 +636,9 @@ def _facade_meshes(m, floor_height=3.3, origin=(0.0, 0.0)):
     """본체 대신 쓸 메시: {재료: Trimesh} — 벽은 큰 직사각형 조각(가는 삼각형 없음), 창 둘레, 유리, 지붕 덮개, 바닥."""
     out = {}
     ox, oy = origin
+    fc_ = m.get("facade") or {}
     for lay in layout(m, floor_height):
-        wall, glass, roof = _Acc(), _Acc(), _Acc()
+        wall, roof = _Acc(), _Acc()
         zwall, top = lay["zwall"], lay["top"]
         for A, t, nrm, L, ops in lay["edges"]:
             def pt(s, z, d=0.0):
@@ -567,12 +647,19 @@ def _facade_meshes(m, floor_height=3.3, origin=(0.0, 0.0)):
             for s0, s1, za, zb in _rects(L, zwall, top, ops):
                 wall.quad(pt(s0, za), pt(s1, za), pt(s1, zb), pt(s0, zb))
             d = DEPTH
-            for s0, s1, z0, z1 in ops:
+            for o in ops:
+                s0, s1, z0, z1 = o[:4]
                 wall.quad(pt(s0, z0), pt(s0, z0, d), pt(s0, z1, d), pt(s0, z1))
                 wall.quad(pt(s1, z1), pt(s1, z1, d), pt(s1, z0, d), pt(s1, z0))
                 wall.quad(pt(s1, z0), pt(s1, z0, d), pt(s0, z0, d), pt(s0, z0))
                 wall.quad(pt(s0, z1), pt(s0, z1, d), pt(s1, z1, d), pt(s1, z1))
-                glass.quad(pt(s0, z0, d), pt(s1, z0, d), pt(s1, z1, d), pt(s0, z1, d))
+        extra = {}
+        from .facade_windows import trim
+        from .facade_windows import quad_arrays
+        for mat, quads in trim(lay, lay.get("trim"), DEPTH, fine=bool(fc_.get("fine", True))).items():
+            V, Fq = quad_arrays(quads)
+            V = V - np.array([ox, oy, 0.0])
+            extra.setdefault(mat, _Acc()).add(V, np.vstack([Fq[:, [0, 1, 2]], Fq[:, [0, 2, 3]]]))
         v, f = trimesh.creation.triangulate_polygon(lay["poly"])
         roof.add(np.column_stack([v[:, 0] - ox, v[:, 1] - oy, np.full(len(v), top)]), f)
         wall.add(np.column_stack([v[:, 0] - ox, v[:, 1] - oy, np.full(len(v), zwall)]), f[:, ::-1])
@@ -580,7 +667,7 @@ def _facade_meshes(m, floor_height=3.3, origin=(0.0, 0.0)):
             b = trimesh.creation.box([0.45, 0.45, zwall - lay["base"]])
             b.apply_translation([q[0] - ox, q[1] - oy, (lay["base"] + zwall) / 2])
             wall.add(b.vertices, b.faces)
-        for mat, acc in ((lay["wall"], wall), ("유리", glass), (lay["roof"], roof)):
+        for mat, acc in ((lay["wall"], wall), (lay["roof"], roof), *extra.items()):
             mm = acc.mesh()
             if mm is not None:
                 out[mat] = mm if mat not in out else trimesh.util.concatenate([out[mat], mm])

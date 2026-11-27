@@ -50,6 +50,8 @@ DEFAULTS = dict(shape="square", outputs=None, site=None, site_clear=False, site_
                 seoul_service=None, safemap_layer=None, safemap_light_layer=None, seoul_code=None, hd_dir=None, osm=True)
 
 
+FINE_TRIM_RADIUS = 250.0     # 창틀·창살·창턱을 만들 범위(가운데에서, m) (v2.4)
+
 def build(src, bbox, out="out", log=print, **kw):
     """수치지도(SHP 폴더 또는 DXF)에서 콘타 모델 전체를 만든다. 반환: 요약 dict."""
     st = SimpleNamespace()     # 단계 사이에 넘기는 값 (st.masses = 건물, st.regions = 계단판 …)
@@ -284,7 +286,11 @@ def _building_details(st):
             if (a.detail >= 3 and (r is None or math.hypot(c.x - cx, c.y - cy) <= r)
                     and m.get("layer") not in ("무벽건물", "공사중건물")):
                 m["facade"]["windows"] = True; n += 1
+                # 창틀·창살·창턱은 가운데 250m 안 건물만(먼 건물은 유리·간판만): 1500m 에서 파일·시간이 크게 늘지 않게
+                m["facade"]["fine"] = math.hypot(c.x - cx, c.y - cy) <= FINE_TRIM_RADIUS
         if a.detail >= 3:
+            nf_ = sum(1 for m in st.masses if (m.get("facade") or {}).get("fine"))
+            log(f"   창틀·창턱까지 만들 건물 {nf_}동 (가운데에서 {FINE_TRIM_RADIUS:g}m 안)")
             log(f"   창문을 낼 건물 {n}동" + (f" (가운데에서 {r:g}m 안)" if r else ""))
     pg.step("3.3", x=f"건물 {len(st.masses)}동")
     if pg.live:

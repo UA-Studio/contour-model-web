@@ -61,7 +61,8 @@ def _rh_wall(A, t, nrm, L, ops, z0, z1, depth, origin):
                                        r3.Plane.WorldXY(), depth, True)
     if ext is None:
         return None
-    for s0, s1, a, b in ops:
+    for o in ops:
+        s0, s1, a, b = o[:4]
         ext.AddInnerProfile(_rh_poly_xy([(s0, a - z0), (s0, b - z0), (s1, b - z0), (s1, a - z0)]))
     T = r3.Transform(1.0)
     T.M00, T.M01, T.M02 = float(t[0]), 0.0, float(nrm[0])
@@ -76,12 +77,15 @@ def _rh_wall(A, t, nrm, L, ops, z0, z1, depth, origin):
 
 def _rh_quads(quads, origin):
     """사각형들(각 4점) → 사각 면 메시(삼각형으로 나누지 않음)."""
+    from .facade_windows import quad_arrays
     rm = r3.Mesh()
-    for q in quads:
-        k = len(rm.Vertices)
-        for x, y, z in q:
-            rm.Vertices.Add(float(x - origin[0]), float(y - origin[1]), float(z))
-        rm.Faces.AddFace(k, k + 1, k + 2, k + 3)
+    add, addf = rm.Vertices.Add, rm.Faces.AddFace
+    V, F = quad_arrays(quads)          # 같은 평면에서 맞닿는 꼭짓점은 하나로 (창틀 테두리 등)
+    V = V - np.array([float(origin[0]), float(origin[1]), 0.0])
+    for x, y, z in V.tolist():
+        add(x, y, z)
+    for a, b, c, d in F.tolist():
+        addf(a, b, c, d)
     rm.Normals.ComputeNormals()
     rm.Compact()
     return rm
@@ -386,21 +390,17 @@ def write_3dm(path, regions, masses, draped, origin, areas=(), trees=(), edges=(
                 walls_done = True
                 # 벽은 면마다 창 구멍 뚫린 한 장의 판, 유리는 사각 면, 지붕은 판 (삼각형으로 쪼개지 않음, v2.3)
                 from .facade import DEPTH, layout
+                from .facade_windows import part_of, trim
                 for lay in layout(m, floor_height):
                     aw = with_mat(a_for(floor_layer(nf, "외벽"), "외벽"), lay["wall"])
-                    glass = []
                     for A, t_, nrm, L, ops in lay["edges"]:
                         ext = _rh_wall(A, t_, nrm, L, ops, lay["zwall"], lay["top"], DEPTH, origin)
                         if ext is not None:
                             f.Objects.AddExtrusion(ext, aw)
-                        for s0, s1, z0, z1 in ops:
-                            def gp(s_, z_):
-                                q = A + s_ * t_ - nrm * DEPTH
-                                return (q[0], q[1], z_)
-                            glass.append([gp(s0, z0), gp(s1, z0), gp(s1, z1), gp(s0, z1)])
-                    if glass:
-                        f.Objects.AddMesh(_rh_quads(glass, origin),
-                                          with_mat(a_for(floor_layer(nf, "유리"), "유리"), "유리"))
+                    # 유리(틴트·불투명)·창틀·창턱·셔터·간판: 재료마다 사각 면 메시 하나 (v2.4)
+                    for mat_, quads in trim(lay, lay.get("trim"), DEPTH, fine=bool(fc.get("fine", True))).items():
+                        pn_ = part_of(mat_)
+                        f.Objects.AddMesh(_rh_quads(quads, origin), with_mat(a_for(floor_layer(nf, pn_), pn_), mat_))
                     ext = _rh_extrusion(lay["poly"], lay["top"] - 0.02, lay["top"], origin)
                     if ext is not None:
                         f.Objects.AddExtrusion(ext, with_mat(a_for(floor_layer(nf, "지붕면"), "지붕면"), lay["roof"]))
